@@ -10,11 +10,7 @@
 
 #pragma warning (disable: 4503)
 
-#include "BSS/Thread/STM/stm.h"
-#include "BSS/Thread/STM/stm_mem_check.h"
-#include "BSS/Common/ExitOperation.h"
-
-#include "BSS/Logger/Logging.h"
+#include "stm.h"
 
 using boost::shared_ptr;
 
@@ -46,154 +42,47 @@ using boost::bind;
 
 namespace bss { namespace thread { namespace  STM
 {
-
-   namespace
-   {
-      bss::logging::WLogger& memlogger = bss::logging::getLogger ("bss.thread.STM.Memory");
-      bss::logging::WLogger& runLockedLogger = bss::logging::getLogger ("bss.thread.STM.RunLocked");
-
-//#define TRACK_INITED_THREADS      
-#ifdef TRACK_INITED_THREADS
-
-#ifdef WIN32
-      boost::mutex s_initedThreadsMutex;
-      std::vector<DWORD> s_initedThreads;
-      std::vector<DWORD> s_exittedThreads;
-
-      void TrackThreadInit ()
-      {
-         boost::lock_guard<boost::mutex> lock (s_initedThreadsMutex);
-         const DWORD i = ::GetCurrentThreadId ();
-         std::vector<DWORD>& initedThreads = s_initedThreads;
-         if (!std::binary_search (initedThreads.begin (), initedThreads.end (), i))
-         {
-            initedThreads.push_back (i);
-            std::sort (initedThreads.begin (), initedThreads.end ());
-         }
-      }
-
-      void CheckThreadInited ()
-      {
-         boost::lock_guard<boost::mutex> lock (s_initedThreadsMutex);
-         const DWORD i = ::GetCurrentThreadId ();
-         const std::vector<DWORD>& initedThreads = s_initedThreads;
-         assert (std::binary_search (initedThreads.begin (), initedThreads.end (), i));
-      }
-
-      void TrackThreadExit ()
-      {
-         boost::lock_guard<boost::mutex> lock (s_initedThreadsMutex);
-         const DWORD i = ::GetCurrentThreadId ();
-         std::vector<DWORD>& exittedThreads = s_exittedThreads;
-         if (!std::binary_search (exittedThreads.begin (), exittedThreads.end (), i))
-         {
-            exittedThreads.push_back (i);
-            std::sort (exittedThreads.begin (), exittedThreads.end ());
-         }
-      }
-
-      void CheckThreadNotExitted ()
-      {
-         boost::lock_guard<boost::mutex> lock (s_initedThreadsMutex);
-         const DWORD i = ::GetCurrentThreadId ();
-         const std::vector<DWORD>& exittedThreads = s_exittedThreads;
-         assert (!std::binary_search (exittedThreads.begin (), exittedThreads.end (), i));
-      }
-      
-#endif //WIN32
-      
-#else
-      void TrackThreadInit ()
-      {}
-
-      void CheckThreadInited ()
-      {}
-
-      void TrackThreadExit ()
-      {}
-
-      void CheckThreadNotExitted ()
-      {}
-
-#endif //TRACK_INITED_THREADS
-
-   }
-
    namespace Internal
    {
-      void LogMemoryAllocation (const char* typeName,
-                                const void* address,
-                                const char* filename,
-                                const int line)
-      {
-         LOG_DEBUG (memlogger, str (format ("%1% allocated at %2% (%3%:%4%)")
-                                    % typeName % address % filename % line));
-      }
-   
-      void LogMemoryDeallocation (const char* typeName,
-                                  const void* address,
-                                  const char* filename,
-                                  const int line)
-      {
-         LOG_DEBUG (memlogger, str (format ("%1% deallocated at %2% (%3%:%4%)")
-                                    % typeName % address % filename % line));
-      }
-
       WLocalValueBase::~WLocalValueBase ()
       {}
 
       uint64_t GetTransactionLocalKey ()
       {
-#pragma warning(push)
-#pragma warning(disable: 4640)
-         static boost::atomic<uint64_t> nextKey (0);
-#pragma warning(pop)
+         static std::atomic<uint64_t> nextKey (0);
          return nextKey.fetch_add (1);
       }
-
-      //We get a key here to force the initialization of nextKey in GetTransactionLocalKey during
-      //what should be a time when no other threads should be calling it. Were we using a C++11
-      //compliant compiler where function scope static variable initialization is thread-safe then
-      //we wouldn't need to do this. With our current compiler there is a small chance that two
-      //threads could both create WTransactionLocalValue objects at the same time and have issues
-      //with nextKey initialization. During program start-up we aren't using multiple threads
-      //anywhere so it should be safe to initialize nextKey. Soon we'll be switching to VS2015 which
-      //has thread-safe static initialization and all this will be unescessary.
-      const auto s_unusedLocalKey = GetTransactionLocalKey ();
    }
    
    namespace
    {
 #ifdef STM_PROFILING
-      boost::mutex s_profileMutex;
-      boost::posix_time::ptime s_profileStart;
-   
-      //this would be better done using c++ std atomics but we don't have
-      //those yet so for now we have to be WIN32 specific
-      long s_numConflicts;
-      long s_numReadCommits;
-      long s_numWriteCommits;
+      std::mutex s_profileMutex;
+      std::chrono::high_resolution_clock::time_point s_profileStart;   
+      std::atomic<unsigned int> s_numConflicts;
+      std::atomic<unsigned int> s_numReadCommits;
+      std::atomic<unsigned int> s_numWriteCommits;
 
 #endif //STM_PROFILING
 
       void IncrementNumConflicts ()
       {
 #ifdef STM_PROFILING
-         InterlockedIncrementRelease (&s_numConflicts);
+         ++s_numConflicts;
 #endif
       }
    
       void IncrementNumReadCommits ()
       {
 #ifdef STM_PROFILING
-         InterlockedIncrementRelease (&s_numReadCommits);
+         ++s_numReadCommits;
 #endif
       }
 
       void IncrementNumWriteCommits ()
       {
 #ifdef STM_PROFILING
-         InterlockedIncrementRelease (&s_numWriteCommits);
+         ++s_numWriteCommits;
 #endif
       }
    }
@@ -201,8 +90,8 @@ namespace bss { namespace thread { namespace  STM
    void StartProfiling ()
    {
 #ifdef STM_PROFILING
-      boost::unique_lock<boost::mutex> lock (s_profileMutex);
-      s_profileStart = boost::posix_time::microsec_clock::local_time ();
+      std::unique_lock<std::mutex> lock (s_profileMutex);
+      s_profileStart = std::chrono::high_resolution_clock::now ();
       InterlockedExchange (&s_numConflicts, 0);
       InterlockedExchange (&s_numReadCommits, 0);
       InterlockedExchange (&s_numWriteCommits, 0);      
@@ -212,7 +101,7 @@ namespace bss { namespace thread { namespace  STM
    std::string WProfileData::FormatData () const
    {
 #ifdef STM_PROFILING
-      const long elapsed = (m_end - m_start).total_seconds ();
+      const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(m_end - m_start).count ();
       return str (format ("\ttime = %1%secs\n"
                           "\tconflicts = %2%/sec (%3% total)\n"
                           "\treads = %4%/sec (%5% total)\n"
@@ -236,8 +125,8 @@ namespace bss { namespace thread { namespace  STM
       data.m_numConflicts = s_numConflicts;
       data.m_numReadCommits = s_numReadCommits;
       data.m_numWriteCommits = s_numWriteCommits;
-      data.m_end = boost::posix_time::microsec_clock::local_time ();
-      boost::unique_lock<boost::mutex> lock (s_profileMutex);
+      data.m_end = std::chrono::high_resolution_clock::now ();
+      std::unique_lock<std::mutex> lock (s_profileMutex);
       data.m_start = s_profileStart;
 #endif      
       return data;
@@ -255,10 +144,10 @@ namespace bss { namespace thread { namespace  STM
       boost::upgrade_mutex s_readMutex;
 
 #ifdef _DEBUG
-      boost::thread_specific_ptr<bool> s_readMutexReadLocked;
-      boost::thread_specific_ptr<bool> s_readMutexUpgradeLocked;
-      boost::thread_specific_ptr<bool> s_readMutexWriteLocked;
-      boost::thread_specific_ptr<bool> s_committing;
+      thread_local bool s_readMutexReadLocked = false;
+      thread_local bool s_readMutexUpgradeLocked = false;
+      thread_local bool s_readMutexWriteLocked = false;
+      thread_local bool s_committing = false;
 #endif //_DEBUG
       
       //This signal is notified when a commit succeeds. s_readMutex
@@ -297,29 +186,6 @@ namespace bss { namespace thread { namespace  STM
 
    namespace
    {
-#ifdef _DEBUG            
-      void DoLockImpl (boost::thread_specific_ptr<bool>& locked_tp)
-      {
-         bool* locked_p = locked_tp.get();
-         if(!locked_p)
-         {
-            locked_p = stm_new bool;
-            locked_tp.reset(locked_p);
-         }
-         *locked_p = true;
-      }
-      
-      void DoUnlockImpl (boost::thread_specific_ptr<bool>& locked_tp)
-      {
-         bool* locked_p = locked_tp.get();
-         if(!locked_p)
-         {
-            locked_p = stm_new bool;
-            locked_tp.reset(locked_p);
-         }
-         *locked_p = false;
-      }
-#endif //_DEBUG
       
       struct WReadLockTraits
       {
@@ -328,14 +194,14 @@ namespace bss { namespace thread { namespace  STM
          static void DoLock ()
          {
 #ifdef _DEBUG            
-            DoLockImpl (s_readMutexReadLocked);
+            s_readMutexReadLocked = true;
 #endif //_DEBUG
          }         
 
          static void DoUnlock ()
          {
 #ifdef _DEBUG            
-            DoUnlockImpl (s_readMutexReadLocked);
+            s_readMutexReadLocked = false;
 #endif //_DEBUG
          }
       };
@@ -347,14 +213,14 @@ namespace bss { namespace thread { namespace  STM
          static void DoLock ()
          {
 #ifdef _DEBUG            
-            DoLockImpl (s_readMutexUpgradeLocked);
+            s_readMutexUpgradeLocked = true;
 #endif //_DEBUG
          }         
 
          static void DoUnlock ()
          {
 #ifdef _DEBUG            
-            DoUnlockImpl (s_readMutexUpgradeLocked);
+            s_readMutexUpgradeLocked = false;
 #endif //_DEBUG
          }
       };
@@ -497,7 +363,7 @@ namespace bss { namespace thread { namespace  STM
 #ifdef _DEBUG
          assert(!m_readLock.m_writeLocked);
          m_readLock.m_writeLocked = true;
-         DoLockImpl (s_readMutexWriteLocked);
+         s_readMutexWriteLocked = true;
 #endif //_DEBUG
       }
       
@@ -506,7 +372,7 @@ namespace bss { namespace thread { namespace  STM
 #ifdef _DEBUG
          assert(m_readLock.m_writeLocked);
          m_readLock.m_writeLocked = false;
-         DoUnlockImpl (s_readMutexWriteLocked);
+         s_readMutexWriteLocked = false;
 #endif //_DEBUG
       }
 
@@ -530,9 +396,12 @@ namespace bss { namespace thread { namespace  STM
       //Data used for each transaction
       struct WTransactionData
       {
-         WTransactionData ();
-         WTransactionData (WTransactionData* parent_p);
-         ~WTransactionData ();
+         explicit WTransactionData (WUpgradeableLock& lock);
+
+         WTransactionData* CreateChild ();
+
+         WTransactionData (const WTransactionData*) = delete;
+         WTransactionData& operator=(const WTransactionData*) = delete;
 
          void Activate ();
          bool IsActive () const;
@@ -573,22 +442,21 @@ namespace bss { namespace thread { namespace  STM
          void* GetMarker () const;
          
       private:
-         WTransactionData (const WTransactionData*);
-         WTransactionData& operator=(const WTransactionData*);
-
+         explicit WTransactionData (const WTransactionData* parent);
+         
          void* const m_marker;
          
          bool m_active;
-         
-         WTransactionData* m_parent_p;
-         WTransactionData* m_child_p;
-         
+
          //The transaction's level (1 = root transaction)
          int m_level;
 
+         WTransactionData* m_parent_p;
+         std::unique_ptr<WTransactionData> m_child_p;         
+
          //locks for this thread.
          WReadLock m_readLock;
-         WUpgradeableLock* m_upgradeLock_p;
+         WUpgradeableLock& m_upgradeLock;
          
          //The WVar's that have been read.
          VarMap m_got;
@@ -611,39 +479,33 @@ namespace bss { namespace thread { namespace  STM
       };
 
       void* const WTransactionData::MARKER_VALUE = (void*)0xdeadbeef;
-      
-      WTransactionData::WTransactionData ():
+
+      WTransactionData::WTransactionData (WUpgradeableLock& lock):
          m_marker (MARKER_VALUE),
          m_active (false),
-         m_parent_p (0),
-         m_child_p (0),
          m_level (1),
          m_readLock (false),
-         m_upgradeLock_p (new WUpgradeableLock (false))
+         m_upgradeLock (lock)
+      {}
+
+      WTransactionData* WTransactionData::CreateChild ()
       {
-         LOG_MEMORY_ALLOCATION (WUpgradeableLock, m_upgradeLock_p);
+         if (!m_child_p)
+         {
+            m_child_p = std::make_unique<WTransactionData>(this);
+         }
+         
+         return m_child_p.get ();
       }
 
-      WTransactionData::WTransactionData (WTransactionData* parent_p):
+      explicit WTransactionData (const WTransactionData* parent_p):
          m_marker (MARKER_VALUE),
          m_active (false),
-         m_parent_p (parent_p),
-         m_child_p (0),
          m_level (parent_p->m_level + 1),
+         m_parent_p (parent_p),
          m_readLock (false),
-         m_upgradeLock_p (parent_p->m_upgradeLock_p)
-      {
-         parent_p->m_child_p = this;
-      }
-      
-      WTransactionData::~WTransactionData ()
-      {
-         if (!m_parent_p)
-         {
-            LOG_MEMORY_DEALLOCATION (WUpgradeableLock, m_upgradeLock_p);
-            delete m_upgradeLock_p;
-         }
-      }
+         m_upgradeLock (parent_p->m_upgradeLock)
+      {}
       
       void WTransactionData::Activate ()
       {
@@ -662,7 +524,7 @@ namespace bss { namespace thread { namespace  STM
       
       WTransactionData* WTransactionData::GetChild () const
       {
-         return m_child_p;
+         return m_child_p.get ();
       }
 
       int WTransactionData::GetLevel () const
@@ -679,7 +541,7 @@ namespace bss { namespace thread { namespace  STM
       WUpgradeableLock& WTransactionData::GetUpgradeLock ()
       {
          assert (m_active);
-         return *m_upgradeLock_p;
+         return m_upgradeLock;
       }
 
       VarMap& WTransactionData::GetGot ()
@@ -752,7 +614,7 @@ namespace bss { namespace thread { namespace  STM
       {
          if (m_active)
          {
-            BOOST_FOREACH (const WAtomic::WOnFailFunc& func, m_onFails)
+            for (const WAtomic::WOnFailFunc& func: m_onFails)
             {
                func ();
             }
@@ -767,7 +629,7 @@ namespace bss { namespace thread { namespace  STM
 
          //we can't use unordered_map::insert here because it won't
          //update elements that are already in the parent transaction
-         BOOST_FOREACH (VarMap::value_type& value, m_got)
+         for (VarMap::value_type& value: m_got)
          {
             VarMap::iterator it;
             bool inserted = false;
@@ -777,7 +639,7 @@ namespace bss { namespace thread { namespace  STM
                it->second = value.second;
             }
          }
-         BOOST_FOREACH (VarMap::value_type& value, m_set)
+         for (VarMap::value_type& value: m_set)
          {
             VarMap::iterator it;
             bool inserted = false;
@@ -788,7 +650,7 @@ namespace bss { namespace thread { namespace  STM
             }
          }
 
-         BOOST_FOREACH (auto& val, m_locals)
+         for (auto& val: m_locals)
          {
             m_parent_p->m_locals[val.first] = std::move (val.second);
          }
@@ -808,10 +670,10 @@ namespace bss { namespace thread { namespace  STM
          WTransactionData* root_p = m_parent_p;
          while (root_p->m_parent_p)
          {
-            root_p = root_p->m_parent_p;
+            root_p = root_p->m_parent_p.get ();
          }
          
-         BOOST_FOREACH (VarMap::value_type& value, m_got)
+         for (VarMap::value_type& value: m_got)
          {
             VarMap::iterator it;
             bool inserted = false;
@@ -882,28 +744,26 @@ namespace bss { namespace thread { namespace  STM
    
 
    namespace 
-   {
+   {      
       //Stores the transaction data for each thread
-#ifdef WIN32
-      //Going directly to Win32 API here since
-      //boost::thread_specific_ptr has performance issues
-      class WTransactionDataTSS
+      class WTransactionDataList
       {
       public:
-         WTransactionDataTSS ();
-
+         WTransactionDataList ();
+         
          Internal::WTransactionData* Get ();
          Internal::WTransactionData* GetNew ();
 
          class WPushGuard
          {
          public:
-            WPushGuard (Internal::WTransactionData* data_p);
+            WPushGuard (std::unique_ptr<Internal::WTransactionData>&& root_p, Internal::WTransactionData* cur_p);
             WPushGuard (WPushGuard&& g);
             ~WPushGuard ();
             
          private:
-            Internal::WTransactionData* m_data_p;
+            std::unique_ptr<Internal::WTransactionData> m_root_p;
+            Internal::WTransactionData* m_cur_p;
          };
          friend WPushGuard;
          WPushGuard Push ();
@@ -914,55 +774,24 @@ namespace bss { namespace thread { namespace  STM
          void CheckIntegrity () const;
          
       private:
-         static void AtThreadExit (const DWORD tlsIndex);
-
          Internal::WTransactionData* GetNewNoActivate ();
 
-         DWORD m_tlsIndex;
+         std::unique_ptr<WTransactionData> m_root_p;
+         WTransactionData* m_cur_p;
+         WUpgradeableLock m_lock;
       };
 
-      WTransactionDataTSS s_transData_p;
+      WTransactionDataList s_transData;
 
-      struct WOutOfTLSIndexes : public WException
-      {
-         WOutOfTLSIndexes ();
-      };
-
-      WOutOfTLSIndexes::WOutOfTLSIndexes ():
-         WException ("Out of TLS indexes")
+      WTransactionDataList::WTransactionDataList ():
+         m_cur_p (nullptr)
       {}
 
-      WTransactionDataTSS::WTransactionDataTSS ()
+      Internal::WTransactionData* WTransactionDataList::Get ()
       {
-         m_tlsIndex = TlsAlloc ();
-         if (m_tlsIndex == TLS_OUT_OF_INDEXES)
+         if (m_cur_p)
          {
-            //If we get here then the program is already generating a
-            //ton of TLS indexes and we can't get one so throw an
-            //exception which will terminate the program.
-            throw WOutOfTLSIndexes ();
-         }
-      }
-
-      struct WTlsSetValueError : public WException
-      {
-         WTlsSetValueError (const DWORD errCode);
-
-         DWORD m_errCode;
-      };
-
-      WTlsSetValueError::WTlsSetValueError (const DWORD errCode):
-         WException (str (format ("Got TLS set error: %1%") % errCode)),
-         m_errCode (errCode)
-      {}
-
-      Internal::WTransactionData* WTransactionDataTSS::Get ()
-      {
-         Internal::WTransactionData* data_p =
-            static_cast<Internal::WTransactionData*>(TlsGetValue (m_tlsIndex));
-         if (data_p)
-         {
-            return data_p;
+            return m_cur_p;
          }
          else
          {
@@ -970,221 +799,96 @@ namespace bss { namespace thread { namespace  STM
          }
       }
 
-      Internal::WTransactionData* WTransactionDataTSS::GetNew ()
+      Internal::WTransactionData* WTransactionDataList::GetNew ()
       {
          Internal::WTransactionData* data_p = GetNewNoActivate ();
          data_p->Activate();
          return data_p;
       }
 
-      Internal::WTransactionData* WTransactionDataTSS::GetNewNoActivate ()
+      Internal::WTransactionData* WTransactionDataList::GetNewNoActivate ()
       {
          CheckIntegrity ();
-         Internal::WTransactionData* data_p =
-            static_cast<Internal::WTransactionData*>(TlsGetValue (m_tlsIndex));
-         if (!data_p)
+         if (!m_cur_p)
          {
-            data_p = stm_new Internal::WTransactionData;
-            LOG_MEMORY_ALLOCATION (WTransactionData, data_p);
-            boost::this_thread::at_thread_exit (
-               boost::bind (WTransactionDataTSS::AtThreadExit, m_tlsIndex));
-            TrackThreadInit ();
+            assert (!m_root_p);
+            m_root_p = std::make_unique<Internal::WTransactionData>(m_lock);
+            m_cur_p = m_root_p.get ();
          }
-         else if (!data_p->IsActive ())
+         else if (m_cur_p->IsActive ())
          {
-            CheckThreadInited ();
-            //skip setting the TLS since it already contains the
-            //correct pointer
-            return data_p;
+            m_cur_p = m_cur_p->CreateChild ();
+            assert (!m_cur_p->IsActive ());
          }
-         else
-         {
-#ifdef TRACK_INITED_THREADS
-            std::vector<DWORD>& inited = s_initedThreads;
-#endif
-            CheckThreadInited ();
-            Internal::WTransactionData* child_p = data_p->GetChild ();
-            if (child_p)
-            {
-               assert (!child_p->IsActive ());
-               data_p = child_p;
-            }
-            else
-            {                
-               data_p = stm_new Internal::WTransactionData (data_p);            
-               LOG_MEMORY_ALLOCATION (WTransactionData, data_p);
-            }
-         }
-
-         const BOOL res = TlsSetValue (m_tlsIndex, data_p);
-         if (!res)
-         {
-            //This shouldn't happen as long as TlsAlloc succeeded
-            //above (and if that fails we shouldn't get this far),
-            //but if we do get here there's no way to recover so
-            //throw an exception that the caller can't catch in
-            //order to terminate the program and generate a dump
-            //file (which should capture the error code).
-            const DWORD errCode = GetLastError ();
-            throw WTlsSetValueError (errCode);
-         }
+         //Note: if m_cur_p wasn't active above then we just use it
          CheckIntegrity ();
          
-         return data_p;
+         return m_cur_p;
       }
 
-      WTransactionDataTSS::WPushGuard::WPushGuard (Internal::WTransactionData* data_p):
-         m_data_p (data_p)
+      WTransactionDataList::WPushGuard::WPushGuard (std::unique_ptr<Internal::WTransactionData>&& root_p, Internal::WTransactionData* cur_p):
+         m_root_p (std::move (root_p)),
+         m_cur_p (cur_p);
       {}
       
-      WTransactionDataTSS::WPushGuard::WPushGuard (WPushGuard&& g):
-         m_data_p (g.m_data_p)
-      {
-         g.m_data_p = nullptr;
-      }
+      WTransactionDataList::WPushGuard::WPushGuard (WPushGuard&& g):
+         m_root_p (std::move (g.m_root_p)),
+         m_cur_p (g.m_cur_p)
+      {}
       
-      WTransactionDataTSS::WPushGuard::~WPushGuard ()
+      WTransactionDataList::WPushGuard::~WPushGuard ()
       {
-         if (m_data_p)
-         {
-            WTransactionDataTSS::AtThreadExit (s_transData_p.m_tlsIndex);
-            const BOOL res = TlsSetValue (s_transData_p.m_tlsIndex, m_data_p);
-            if (!res)
-            {
-               //This shouldn't happen as long as TlsAlloc succeeded
-               //above (and if that fails we shouldn't get this far),
-               //but if we do get here there's no way to recover so
-               //throw an exception that the caller can't catch in
-               //order to terminate the program and generate a dump
-               //file (which should capture the error code).
-               const DWORD errCode = GetLastError ();
-               throw WTlsSetValueError (errCode);
-            }
-         }
+         s_transData.m_root_p = std::move (m_root_p);
+         s_transData.m_cur_p = m_cur_p;
       }
 
-      WTransactionDataTSS::WPushGuard WTransactionDataTSS::Push ()
+      WTransactionDataList::WPushGuard WTransactionDataList::Push ()
       {
          CheckIntegrity ();
-         Internal::WTransactionData* data_p =
-            static_cast<Internal::WTransactionData*>(TlsGetValue (m_tlsIndex));
-         if (data_p)
-         {
-            const BOOL res = TlsSetValue (m_tlsIndex, nullptr);
-            if (!res)
-            {
-               //This shouldn't happen as long as TlsAlloc succeeded
-               //above (and if that fails we shouldn't get this far),
-               //but if we do get here there's no way to recover so
-               //throw an exception that the caller can't catch in
-               //order to terminate the program and generate a dump
-               //file (which should capture the error code).
-               const DWORD errCode = GetLastError ();
-               throw WTlsSetValueError (errCode);
-            }
-         }
-         return WPushGuard (data_p);
+         auto oldRoot_p = std::move (m_root_p);
+         auto oldCur_p = m_cur_p;
+         m_root_p.reset ();
+         m_cur_p = nullptr;
+         return WPushGuard (oldRoot_p, oldCur_p);
       }
 
-      void WTransactionDataTSS::MergeToParent ()
+      void WTransactionDataList::MergeToParent ()
       {
          CheckIntegrity ();
-         Internal::WTransactionData* data_p =
-            static_cast<Internal::WTransactionData*>(TlsGetValue (m_tlsIndex));
-         assert (data_p->IsActive ());
-         assert (data_p->GetParent ());
-         if (data_p->GetParent ())
+         assert (m_cur_p->IsActive ());
+         assert (m_cur_p->GetParent ());
+         if (m_cur_p->GetParent ())
          {
-            data_p->MergeToParent ();
-            Internal::WTransactionData* parent_p = data_p->GetParent ();
-            const BOOL res = TlsSetValue (m_tlsIndex, parent_p);
-            if (!res)
-            {
-               //This shouldn't happen as long as TlsAlloc succeeded
-               //above (and if that fails we shouldn't get this far),
-               //but if we do get here there's no way to recover so
-               //throw an exception that the caller can't catch in
-               //order to terminate the program and generate a dump
-               //file (which should capture the error code).
-               const DWORD errCode = GetLastError ();
-               throw WTlsSetValueError (errCode);
-            }
+            m_cur_p->MergeToParent ();
+            m_cur_p = m_cur_p->GetParent ();
             CheckIntegrity ();
          }
       }
 
-      void WTransactionDataTSS::Abandon ()
+      void WTransactionDataList::Abandon ()
       {
-         Internal::WTransactionData* data_p =
-            static_cast<Internal::WTransactionData*>(TlsGetValue (m_tlsIndex));
-         assert (data_p);
-         if (!data_p)
+         assert (m_cur_p);
+         if (!m_cur_p)
          {
             return;
          }
-         data_p->Clear ();
+         m_cur_p->Clear ();
          
-         if (data_p->GetParent ())
+         if (m_cur_p->GetParent ())
          {
-            Internal::WTransactionData* parent_p = data_p->GetParent ();
-            const BOOL res = TlsSetValue (m_tlsIndex, parent_p);
-            if (!res)
-            {
-               //This shouldn't happen as long as TlsAlloc succeeded
-               //above (and if that fails we shouldn't get this far),
-               //but if we do get here there's no way to recover so
-               //throw an exception that the caller can't catch in
-               //order to terminate the program and generate a dump
-               //file (which should capture the error code).
-               const DWORD errCode = GetLastError ();
-               throw WTlsSetValueError (errCode);
-            }
+            m_cur_p = m_cur_p->GetParent ();
             CheckIntegrity ();
          }         
-      }
-      
-      void WTransactionDataTSS::AtThreadExit (const DWORD tlsIndex)
-      {
-         //first find the root transaction
-         Internal::WTransactionData* data_p =
-            static_cast<Internal::WTransactionData*>(TlsGetValue (tlsIndex));
-         if (!data_p)
-         {
-            return;
-         }
-         Internal::WTransactionData* parent_p = data_p->GetParent ();
-         while (parent_p)
-         {
-            data_p = parent_p;
-            parent_p = data_p->GetParent ();
-         }
-
-         //now delete the root followed by each of its children
-         while (data_p)
-         {
-            Internal::WTransactionData* child_p = data_p->GetChild ();
-            LOG_MEMORY_DEALLOCATION (WTransactionData, data_p);
-            delete data_p;
-            data_p = child_p;
-         }
-
-         //set the TLS to zero so that if a transaction is started
-         //after this function runs a new data object will be created
-         TlsSetValue (tlsIndex, 0);
-         
-         TrackThreadExit ();
       }
 
 //#define CHECK_TLS_INTEGRITY
 #ifdef CHECK_TLS_INTEGRITY
 
-      void WTransactionDataTSS::CheckIntegrity () const
+      void WTransactionDataList::CheckIntegrity () const
       {
-         Internal::WTransactionData* data_p =
-            static_cast<Internal::WTransactionData*>(TlsGetValue (m_tlsIndex));
-         if (data_p)
+         if (m_cur_p)
          {            
-            Internal::WTransactionData* cur_p = data_p;
+            Internal::WTransactionData* cur_p = m_cur_p;
             Internal::WTransactionData* parent_p = cur_p->GetParent ();
             assert (cur_p->GetMarker () == Internal::WTransactionData::MARKER_VALUE);
             
@@ -1197,7 +901,7 @@ namespace bss { namespace thread { namespace  STM
                parent_p = cur_p->GetParent ();
             }
 
-            cur_p = data_p;
+            cur_p = m_cur_p;
             Internal::WTransactionData* child_p = cur_p->GetChild ();
             while (child_p)
             {
@@ -1211,11 +915,10 @@ namespace bss { namespace thread { namespace  STM
       }
       
 #else
-      void WTransactionDataTSS::CheckIntegrity () const
+      void WTransactionDataList::CheckIntegrity () const
       {}
 #endif CHECK_TLS_INTEGRITY
 
-#endif //WIN32      
    }
 
    namespace Internal
@@ -1223,25 +926,19 @@ namespace bss { namespace thread { namespace  STM
       
 #ifdef _DEBUG
 
-      inline bool ReadBoolPtr(const boost::thread_specific_ptr<bool>& ptr)
-      {
-         const bool* locked_p = ptr.get();
-         return locked_p ? *locked_p : false;
-      }
-      
       bool ReadLocked()
       {
-         return ReadBoolPtr(s_readMutexReadLocked);
+         return s_readMutexReadLocked;
       }
       
       bool UpgradeLocked()
       {
-         return ReadBoolPtr(s_readMutexUpgradeLocked);
+         return s_readMutexUpgradeLocked;
       }
       
       bool WriteLocked()
       {
-         return ReadBoolPtr(s_readMutexWriteLocked);
+         return s_readMutexWriteLocked;
       }      
 #endif //_DEBUG
 
@@ -1251,18 +948,16 @@ namespace bss { namespace thread { namespace  STM
 
       WValueBase::~WValueBase ()
       {
-         LOG_MEMORY_DEALLOCATION (WValue, this);
       }
 
       WVarCoreBase::~WVarCoreBase ()
       {
-         LOG_MEMORY_DEALLOCATION (WVarCore, this);
       }
 
    }
    
    WAtomic::WAtomic ():
-      m_data_p (s_transData_p.GetNew ()),
+      m_data_p (s_transData.GetNew ()),
       m_committed (false)
    {
 #ifdef _DEBUG
@@ -1291,7 +986,7 @@ namespace bss { namespace thread { namespace  STM
    bool WAtomic::DoValidation() const
    {
       assert(Internal::ReadLocked() || Internal::UpgradeLocked ());
-      BOOST_FOREACH (const VarMap::value_type& val, m_data_p->GetGot ())
+      for (const VarMap::value_type& val: m_data_p->GetGot ())
       {
          if (!val.first->Validate (*val.second))
          {
@@ -1356,7 +1051,7 @@ namespace bss { namespace thread { namespace  STM
       //transaction that is being restarted. If this happens at best
       //the actions of the detstructor will never be comitted, at
       //worst memory corruption will result.
-      WTransactionDataTSS::WPushGuard guard = s_transData_p.Push ();
+      WTransactionDataList::WPushGuard guard = s_transData.Push ();
       m_data_p->Clear ();
       m_data_p->Activate ();
    }
@@ -1366,7 +1061,7 @@ namespace bss { namespace thread { namespace  STM
       //We need to push our transaction data aside here so that
       //transactions in the "on fail" handlers will run properly
       //(properly here means: no memory corruption)
-      WTransactionDataTSS::WPushGuard guard = s_transData_p.Push ();
+      WTransactionDataList::WPushGuard guard = s_transData.Push ();
       m_data_p->RunOnFails ();
    }
 
@@ -1388,28 +1083,21 @@ namespace bss { namespace thread { namespace  STM
       {
          Internal::WTransactionData::WBeforeCommitList beforeCommits;
          m_data_p->GetBeforeCommits (beforeCommits);         
-         BOOST_FOREACH (WAtomic::WBeforeCommitFunc& beforeCommit, beforeCommits)
+         for (WAtomic::WBeforeCommitFunc& beforeCommit: beforeCommits)
          {
             beforeCommit (*this);
          }
          
 #ifdef _DEBUG
-         bool* committing_p = s_committing.get();
-         if(!committing_p)
-         {
-            committing_p = stm_new bool;
-            s_committing.reset(committing_p);
-         }
-         *committing_p = true;
+         s_committing = true;
          struct WClearFlag
          {
-            bool* m_committing_p;
             ~WClearFlag()
             {
-               *m_committing_p = false;
+               s_committing = false;
             }
          };
-         WClearFlag clearFlag = {committing_p};
+         WClearFlag clearFlag;
          (void)clearFlag; //avoid a compiler warning
 #endif _DEBUG
          
@@ -1422,12 +1110,12 @@ namespace bss { namespace thread { namespace  STM
             {
                m_data_p->GetUpgradeLock ().UnlockAll ();
                return false;
-
             }
+            
             {   
                //scope introduced so that wlock goes away at end of block
                WWriteLock wlock(m_data_p->GetUpgradeLock ());
-               BOOST_FOREACH (const VarMap::value_type& val, m_data_p->GetSet ())
+               for (const VarMap::value_type& val: m_data_p->GetSet ())
                {
                   //save old values until after we're done committing
                   //in case they run transactions in their destructors
@@ -1469,7 +1157,7 @@ namespace bss { namespace thread { namespace  STM
          m_data_p->GetAfters (afters);
          m_data_p->Clear ();
 #ifdef _DEBUG
-         *committing_p = false;
+         s_committing = false;
 #endif //_DEBUG
          m_committed = true;
 
@@ -1479,7 +1167,7 @@ namespace bss { namespace thread { namespace  STM
          //fighting with the transaction to release the channel nodes in order to avoid a stack overflow). 
          dead.clear ();
          
-         BOOST_FOREACH (WAtomic::WAfterFunc& after, afters)
+         for (WAtomic::WAfterFunc& after: afters)
          {
             after ();
          }
@@ -1622,7 +1310,7 @@ namespace bss { namespace thread { namespace  STM
    {
       if (!m_committed)
       {
-         s_transData_p.Abandon ();
+         s_transData.Abandon ();
       }
    }
 
@@ -1661,8 +1349,7 @@ namespace bss { namespace thread { namespace  STM
 #ifdef _DEBUG
       //if this assertion fails we got a new transaction starting
       //while the current transaction is committing
-      bool* committing_p = s_committing.get();
-      assert(!committing_p || !*committing_p);
+      assert(!s_committing);
 #endif _DEBUG
 
       WAtomic at;
@@ -1690,7 +1377,7 @@ namespace bss { namespace thread { namespace  STM
             //merge to parent, exceptions and committing will be handled by the
             //root transaction
             op (at);
-            s_transData_p.MergeToParent ();
+            s_transData.MergeToParent ();
             at.m_committed = true;
             return;
          }
@@ -1722,7 +1409,6 @@ namespace bss { namespace thread { namespace  STM
             }
             else
             {
-               LOG_ERROR (runLockedLogger, "RUNNING LOCKED");
                at.CommitLock();
             }
          }
@@ -1767,16 +1453,15 @@ namespace bss { namespace thread { namespace  STM
             throw;
          }
 
-         if(!at.Commit())
+         if(at.Commit())
          {
-            at.RunOnFails ();
-            at.Restart();
-            ++badCommits;
-            IncrementNumConflicts ();
-            continue;
+            break;
          }
-         break;
 
+         at.RunOnFails ();
+         at.Restart();
+         ++badCommits;
+         IncrementNumConflicts ();
       }
    }
 
@@ -1819,7 +1504,7 @@ namespace bss { namespace thread { namespace  STM
 
    bool InAtomic()
    {
-      return (s_transData_p.Get()->IsActive ());
+      return (s_transData.Get()->IsActive ());
    }
 
    WNoAtomic::WNoAtomic ()

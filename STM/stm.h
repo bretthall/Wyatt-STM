@@ -14,7 +14,6 @@
 #endif
 
 #include "BSS/wtcbss.h"
-#include "BSS/Common/Pointers.h"
 #include "BSS/Common/CombinatorArgs.h"
 #include "BSS/Common/TimeArg.h"
 #include "BSS/Common/NotCopyable.h"
@@ -136,19 +135,6 @@ namespace bss { namespace thread { namespace STM
       bool BSS_LIBAPI UpgradeLocked();
       bool BSS_LIBAPI WriteLocked();
 #endif //_DEBUG
-
-      void BSS_LIBAPI LogMemoryAllocation (const char* typeName,
-                                           const void* address,
-                                           const char* filename,
-                                           const int line);
-      void BSS_LIBAPI LogMemoryDeallocation (const char* typeName,
-                                             const void* address,
-                                             const char* filename,
-                                             const int line);
-#define LOG_MEMORY_ALLOCATION(typeName, address)                    \
-      LogMemoryAllocation (#typeName, address, __FILE__, __LINE__)//
-#define LOG_MEMORY_DEALLOCATION(typeName, address)                     \
-      LogMemoryDeallocation (#typeName, address, __FILE__, __LINE__)//
       
       struct WTransactionData;
 
@@ -158,7 +144,6 @@ namespace bss { namespace thread { namespace STM
 
       struct BSS_CLASSAPI WValueBase
       {
-         DEFINE_POINTERS (WValueBase);
          size_t m_version;
 
          WValueBase (const size_t version);
@@ -168,8 +153,6 @@ namespace bss { namespace thread { namespace STM
       template <typename Type_t>
       struct WValue : public WValueBase
       {
-         DEFINE_POINTERS (WValue);
-         
          Type_t m_value;
 
          WValue (const size_t version, const Type_t& value);
@@ -183,24 +166,20 @@ namespace bss { namespace thread { namespace STM
 
       struct BSS_CLASSAPI WVarCoreBase
       {
-         DEFINE_POINTERS (WVarCoreBase);
-         
          virtual bool Validate (const WValueBase& val) const = 0;
-         virtual WValueBase::Ptr Commit (const WValueBase::Ptr& val_p) = 0;
+         virtual std::shared_ptr<WValueBase> Commit (const std::shared_ptr<WValueBase>& val_p) = 0;
          virtual ~WVarCoreBase ();
       };
 
       template <typename Type_t>
       struct WVarCore : public WVarCoreBase
       {
-         DEFINE_POINTERS (WVarCore);
-         
          virtual bool Validate (const WValueBase& val) const;
-         virtual WValueBase::Ptr Commit (const WValueBase::Ptr& val_p);
+         virtual std::shared_ptr<WValueBase> Commit (const std::shared_ptr<WValueBase>& val_p);
          
          explicit WVarCore(WValue<Type_t>* val_p);
 
-         typename WValue<Type_t>::Ptr m_value_p;
+         typename std::shared_ptr<WValue<Type_t>> m_value_p;
       };
 
       template<typename Type_t>
@@ -210,9 +189,9 @@ namespace bss { namespace thread { namespace STM
       }
       
       template<typename Type_t>
-      WValueBase::Ptr WVarCore<Type_t>::Commit (const WValueBase::Ptr& val_p)
+      std::shared_ptr<WValueBase> WVarCore<Type_t>::Commit (const std::shared_ptr<WValueBase>& val_p)
       {
-         WValueBase::Ptr old_p = m_value_p;
+         std::shared_ptr<WValueBase> old_p = m_value_p;
 #ifdef _DEBUG
          const auto oldPtr_p = static_cast<const WValue<Type_t>*>(old_p.get ());
          (void) oldPtr_p;
@@ -504,19 +483,17 @@ namespace bss { namespace thread { namespace STM
 
       //Gets the value for the given WVar, this will be null if a
       //value has not been "gotten" or "set" for this WVar in this transaction.
-      const Internal::WValueBase* GetVarValue (const Internal::WVarCoreBase::Ptr& core_p);
+      const Internal::WValueBase* GetVarValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p);
       //Gets the value that has been "gotten" for the given WVar, this will be null if a value has
       //not been "gotten" for the WVar in this transaction. 
-      const Internal::WValueBase* GetVarGotValue (const Internal::WVarCoreBase::Ptr& core_p);
+      const Internal::WValueBase* GetVarGotValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p);
       //Sets the "gotten" value for the given WVar in this transaction.
-      void  SetVarGetValue (const Internal::WVarCoreBase::Ptr& core_p,
-                            const Internal::WValueBase::Ptr& value_p);
+      void  SetVarGetValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p, std::shared_ptr<Internal::WValueBase>& value_p);
       //Gets the value that has been set for the WVar, or null if no
       //value has been set.
-      Internal::WValueBase* GetVarSetValue (const Internal::WVarCoreBase::Ptr& core_p);
+      Internal::WValueBase* GetVarSetValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p);
       //Sets the given WVar's value in the transaction. 
-      void SetVarValue (const Internal::WVarCoreBase::Ptr& core_p,
-                        const Internal::WValueBase::Ptr& value_p);
+      void SetVarValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p, std::shared_ptr<Internal::WValueBase>& value_p);
 
       //Used by WTransactionLocalValue
       Internal::WLocalValueBase* GetLocalValue (uint64_t key);
@@ -1007,8 +984,6 @@ namespace bss { namespace thread { namespace STM
    class WVar
    {
    public:
-      DEFINE_POINTERS (WVar);
-
       friend class WAtomic;
       
       typedef Type_t Type;
@@ -1019,12 +994,8 @@ namespace bss { namespace thread { namespace STM
          Type_t has a default constructor.
       */
       WVar():
-         m_core_p(stm_new Internal::WVarCore<Type_t>(
-                     stm_new Internal::WValue<Type_t> (0, Type_t ())))
-      {
-         LOG_MEMORY_ALLOCATION (WVarCore, m_core_p.get ());
-         LOG_MEMORY_ALLOCATION (WValue, m_core_p->m_value_p.get ());
-      }
+         m_core_p(std::make_shared<Internal::WVarCore<Type_t>>(std::make_shared<Internal::WValue<Type_t>> (0, Type_t ())))
+      {}
 
       /**
          Constructor.
@@ -1032,11 +1003,8 @@ namespace bss { namespace thread { namespace STM
          @param val The initial value for the variable.
       */
       explicit WVar(param_type val):
-         m_core_p(stm_new Internal::WVarCore<Type_t>(stm_new Internal::WValue<Type_t> (0, val)))
-      {
-         LOG_MEMORY_ALLOCATION (WVarCore, m_core_p.get ());
-         LOG_MEMORY_ALLOCATION (WValue, m_core_p->m_value_p.get ());
-      }
+         m_core_p(std::make_shared<Internal::WVarCore<Type_t>>(std::make_shared<Internal::WValue<Type_t>> (0, val)))
+      {}
 
       WVar (WVar&& var):
          m_core_p (std::move (var.m_core_p))
@@ -1060,7 +1028,7 @@ namespace bss { namespace thread { namespace STM
          if (!val_p)
          {
             at.ReadLock ();
-            const Internal::WValue<Type_t>::Ptr value_p = m_core_p->m_value_p;
+            const std::shared_ptr<Internal::WValue<Type_t>> value_p = m_core_p->m_value_p;
             at.ReadUnlock ();
             at.SetVarGetValue (m_core_p, value_p);
             val_p = value_p.get ();
@@ -1118,10 +1086,10 @@ namespace bss { namespace thread { namespace STM
          if (!val_p)
          {
             at.ReadLock ();
+            //BARE POINTERS?!?!?!
             val_p = stm_new Internal::WValue<Type_t>(m_core_p->m_value_p->m_version + 1, val);
-            LOG_MEMORY_ALLOCATION (WValue, val_p);
             at.ReadUnlock ();
-            at.SetVarValue (m_core_p, typename Internal::WValue<Type_t>::Ptr (val_p));
+            at.SetVarValue (m_core_p, typename std::shared_ptr<Internal::WValue<Type_t>> (val_p));
          }
          else
          {
@@ -1203,7 +1171,7 @@ namespace bss { namespace thread { namespace STM
          WRead& operator= (const WRead&) { return *this; } // Silence warning C4512
       };
 
-      typename Internal::WVarCore<Type_t>::Ptr m_core_p;
+      typename std::shared_ptr<Internal::WVarCore<Type_t>> m_core_p;
    };
 
    /**
