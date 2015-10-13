@@ -50,17 +50,7 @@
 #undef max
 #include <limits>
 
-#ifdef WIN32
-#ifdef _DEBUG
-#define stm_new new(_NORMAL_BLOCK, __FILE__, __LINE__)
-#else
-#define stm_new new
-#endif
-#else
-#define stm_new new
-#endif
-
-namespace bss { namespace thread { namespace STM
+namespace WSTM
 {
    /**
     * Starts a profiling run. Note that STM_PROFILING must be defined
@@ -113,6 +103,7 @@ namespace bss { namespace thread { namespace STM
    */
    struct BSS_CLASSAPI WConflictResolution
    {
+      //TODO: Switch to new-style enumerations
       enum Value
       {
          /**
@@ -234,103 +225,82 @@ namespace bss { namespace thread { namespace STM
          Creates a guard and read locks the given object.
       */
       WReadLockGuard(ReadLockable_t& lockable):
-         m_lockable(lockable)
+         m_lockable_p (&lockable)
       {
          lockable.ReadLock();
+      }
+
+      WReadLockGuard (WReadLockGuard&& g):
+         m_lockable_p (g.m_lockable_p)
+      {
+         g.m_lockable_p = nullptr;
+      }
+
+      WReadLockGuard& operator=(WReadLockGuard&& g):
+      {
+         m_lockable_p = g.m_lockable_p;
+         g.m_lockable_p = nullptr;
+      }
+
+      ~WReadLockGuard()
+      {
+         Unlock ();
       }
 
       /**
          Unlocks the object that was passed to the
          constructor.
       */
-      ~WReadLockGuard()
+      void Unlock ()
       {
-         m_lockable.ReadUnlock();
+         if (m_lockable_p)
+         {
+            m_lockable_p->ReadUnlock ();
+            m_lockable_p = nullptr;
+         }
       }
-				
+      
    private:
-      ReadLockable_t& m_lockable;
+      ReadLockable_t* m_lockable_p;
    };
 
    /**
-    * Argument object for Atomically(). Normally this isn't passed
-    * directly but is instead manipulated using WMaxConflicts,
-    * WConRes, WMaxRetries and WMaxRetryWait.
-    */
-   struct BSS_CLASSAPI WAtomicallyArgs
-   {
-      unsigned int m_maxConflicts;
-      WConflictResolution::Value m_conRes;
-      unsigned int m_maxRetries;
-      WTimeArg m_maxRetryWait;
-
-      WAtomicallyArgs();
-   };
-
-   /**
-    * Sets the the maximum number of times that the operation should
-    * be re-run due to STM::WVar changes by other threads before
-    * "conflict resolution" is used.  Pass STM::UNLIMITED to have no
+    * Sets the the maximum number of times that the operation should be re-run due to STM::WVar
+    * changes by other threads before "conflict resolution" is used.  Pass STM::UNLIMITED to have no
     * limit (this is the default).
     */
-   struct BSS_CLASSAPI WMaxConflicts : public CombinatorArgs::WArg<WAtomicallyArgs, WMaxConflicts>
+   struct BSS_CLASSAPI WMaxConflicts
    {
-      WMaxConflicts(const unsigned int m) : m_max(m) {}
+      WMaxConflicts ();
+      WMaxConflicts(const unsigned int m, const WConflictResolution::Value res = WConflictResolution::THROW);
+
       unsigned int m_max;
-
-      void apply(WAtomicallyArgs& a) const
-      {
-         a.m_maxConflicts = m_max;
-      }
+      WConflictResolution::Value m_resolution;
    };
 
    /**
-    * How to handle things when the limit set by WMaxConflicts is
-    * reached.  See WConflictResolution for more info.
+    * The maximum number of times that STM::retry() can be called by op or any functions that op
+    * calls. If this limit is hit a WMaxRetriesException will be thrown. Pass STM::UNLIMITED to
+    * have no limit (this is the default).
     */
-   struct BSS_CLASSAPI WConRes : public CombinatorArgs::WArg<WAtomicallyArgs, WConRes>
-   {
-      WConRes(const WConflictResolution::Value r) : m_res(r) {}
-      WConflictResolution::Value m_res;
-
-      void apply(WAtomicallyArgs& a) const
-      {
-         a.m_conRes = m_res;
-      }
-   };
+   FIND_ARG__MAKE_ARG_TYPE (unsigned int, WMaxRetries, UNLIMITED);
 
    /**
-    * The maximum number of times that STM::retry() can be called by
-    * op or any functions that op calls.  If this limit is hit a
-    * WMaxRetriesException will be thrown. Pass STM::UNLIMITED to have
-    * no limit (this is the default).
+    * The maximum amount of time to wait for a retry (see STM::Retry() for details). If this
+    * limit is hit a WRetryTimeoutException will be thrown. Pass boost::not_a_date_time to have no
+    * limit, this is the deafult.
     */
-   struct BSS_CLASSAPI WMaxRetries : public CombinatorArgs::WArg<WAtomicallyArgs, WMaxRetries>
+   struct BSS_CLASSAPI WMaxRetryWait
    {
-      WMaxRetries(const unsigned int m) : m_max(m) {}
-      unsigned int m_max;
-
-      void apply(WAtomicallyArgs& a) const
+      WMaxRetryWait ();
+      WMaxRetryWait (const boost::system_time t);
+      template <typename Duration_t>
+      WMaxRetryWait (const Duration_t d)
       {
-         a.m_maxRetries = m_max;
+         m_timeout = boost::get_system_time () + d;
       }
-   };
-
-   /**
-    * The maximum amount of milliseconds to wait for a retry (see
-    * STM::Retry() for details).  If this limit is hit a
-    * WRetryTimeoutException will be thrown.  Pass STM::UNLIMITED to
-    * have no time limit (this is the default).
-    */
-   struct BSS_CLASSAPI WMaxRetryWait : public CombinatorArgs::WArg<WAtomicallyArgs, WMaxRetryWait>
-   {
-      WMaxRetryWait(const WTimeArg& timeout) : m_max(timeout) {}
-      WTimeArg m_max;
-
-      void apply(WAtomicallyArgs& a) const
-      {
-         a.m_maxRetryWait = m_max;
-      }
+      
+      boost::system_time m_timeout;
    };
 
    /**
@@ -440,7 +410,11 @@ namespace bss { namespace thread { namespace STM
          This method is used internally, just ignore it. You
          should be looking at STM::atomically() instead.
       */
-      static void AtomicallyImpl(WAtomicOp op, const WAtomicallyArgs& args);
+      //TODO: replace WAtomicOp with something that doesn't have overhead of boost::function
+      static void AtomicallyImpl(WAtomicOp op,
+                                 const WMaxConflicts& maxConflicts,
+                                 const WMaxRetries& maxRetries,
+                                 const WMaxRetryWait& maxRetryWait);
 
       //@}
 
@@ -488,12 +462,12 @@ namespace bss { namespace thread { namespace STM
       //not been "gotten" for the WVar in this transaction. 
       const Internal::WValueBase* GetVarGotValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p);
       //Sets the "gotten" value for the given WVar in this transaction.
-      void  SetVarGetValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p, std::shared_ptr<Internal::WValueBase>& value_p);
+      void  SetVarGetValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p, std::shared_ptr<Internal::WValueBase>&& value_p);
       //Gets the value that has been set for the WVar, or null if no
       //value has been set.
       Internal::WValueBase* GetVarSetValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p);
       //Sets the given WVar's value in the transaction. 
-      void SetVarValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p, std::shared_ptr<Internal::WValueBase>& value_p);
+      void SetVarValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p, std::shared_ptr<Internal::WValueBase>&& value_p);
 
       //Used by WTransactionLocalValue
       Internal::WLocalValueBase* GetLocalValue (uint64_t key);
@@ -725,30 +699,22 @@ namespace bss { namespace thread { namespace STM
 
 		@return The result of op.
    */
-   template <typename Op_t>
-   void Atomically(const Op_t& op,
-                   const WAtomicallyArgs& args = WAtomicallyArgs(),
-                   typename
-                   boost::enable_if<
-                   boost::is_same<void,
-                   typename Internal::WAtomicOpResultType<Op_t>::type> >::type* = 0)
+   template <typename Op_t, typename ... Args>
+   auto Atomically(const Op_t& op, const Args&... args) -> 
+                   boost::enable_if_t<boost::is_same<void, decltype (op (std::declval<WAtomic>()))>, void>
    {
-      WAtomic::AtomicallyImpl(boost::cref(op), args);
+      WAtomic::AtomicallyImpl(boost::cref(op), FindArg<WMaxConflicts>(), FindArg<WMaxRetries>(), FindArg<WMaxRetryWait>());
    }
 
-   template <typename Op_t>
-   typename Internal::WAtomicOpResultType<Op_t>::type
-   Atomically(const Op_t& op,
-              const WAtomicallyArgs& args = WAtomicallyArgs(),
-              typename
-              boost::disable_if<
-              boost::is_same<void, typename Internal::WAtomicOpResultType<Op_t>::type> >::type* = 0)
+   template <typename Op_t, typename ... Args>
+   auto Atomically(const Op_t& op, const Args&... args) -> 
+      boost::enable_if_t<!boost::is_same<void, decltype (op (std::declval<WAtomic>()))>, decltype (op (std::declval<WAtomic>()))>
    {
-      typedef typename Internal::WAtomicOpResultType<Op_t>::type ResultType;
+      typedef decltype (op (std::declval<WAtomic>())) ResultType;
       Internal::WValOp<WAtomic, Op_t, ResultType, std::is_reference<ResultType>::value> val_op(op);
-      WAtomic::AtomicallyImpl(boost::ref(val_op), args);
+      WAtomic::AtomicallyImpl(boost::ref(val_op), FindArg<WMaxConflicts>(), FindArg<WMaxRetries>(), FindArg<WMaxRetryWait>());
       return val_op.GetResult();
-   }
+   }   
    //!}
 
    //!{
@@ -1023,15 +989,14 @@ namespace bss { namespace thread { namespace STM
       */
       param_type Get(WAtomic& at) const
       {
-         const Internal::WValue<Type_t>* val_p =
-            static_cast<const Internal::WValue<Type_t>*>(at.GetVarValue (m_core_p));
+         auto val_p = static_cast<const Internal::WValue<Type_t>*>(at.GetVarValue (m_core_p));
          if (!val_p)
          {
-            at.ReadLock ();
-            const std::shared_ptr<Internal::WValue<Type_t>> value_p = m_core_p->m_value_p;
-            at.ReadUnlock ();
-            at.SetVarGetValue (m_core_p, value_p);
+            WReadLockGuard<WAtomic> lock (at);
+            auto value_p = m_core_p->m_value_p;
+            lock.Unlock ();
             val_p = value_p.get ();
+            at.SetVarGetValue (m_core_p, std::move (value_p));
          }
          return val_p->m_value;
       }
@@ -1047,9 +1012,9 @@ namespace bss { namespace thread { namespace STM
       */
       Type GetInconsistent(WInconsistent& ins) const
       {
-         ins.ReadLock();
+         WReadLockGuard<WInconsistent> lock (ins);
          const Internal::WValue<Type_t>::ConstPtr val_p = m_core_p->m_value_p;
-         ins.ReadUnlock();
+         lock.Unlock ();
          return val_p->m_value;
       }
 
@@ -1081,15 +1046,14 @@ namespace bss { namespace thread { namespace STM
          //moved into a WVar and then the transaction gets restarted
          //the object that we need to move from is now in its
          //post-move state and unusable.
-         Internal::WValue<Type_t>* val_p =
-            static_cast<Internal::WValue<Type_t>*>(at.GetVarSetValue (m_core_p));
+         auto val_p = static_cast<Internal::WValue<Type_t>*>(at.GetVarSetValue (m_core_p));
          if (!val_p)
          {
-            at.ReadLock ();
-            //BARE POINTERS?!?!?!
-            val_p = stm_new Internal::WValue<Type_t>(m_core_p->m_value_p->m_version + 1, val);
-            at.ReadUnlock ();
-            at.SetVarValue (m_core_p, typename std::shared_ptr<Internal::WValue<Type_t>> (val_p));
+            WReadLockGuard<WAtomic> lock (at);
+            const auto oldVersion = m_core_p->m_value_p->m_version;
+            lock.Unlock ();            
+            auto newVal_p = std::make_shared<Internal::WValue<Type_t>>(oldVersion + 1, val);
+            at.SetVarValue (m_core_p, std::move (newVal_p));
          }
          else
          {
@@ -1122,9 +1086,9 @@ namespace bss { namespace thread { namespace STM
          const auto val_p = at.GetVarGotValue (m_core_p);
          if (val_p)
          {
-            at.ReadLock ();
+            WReadLockGuard<WAtomic> lock (at);
             const auto valid = m_core_p->Validate (*val_p);
-            at.ReadUnlock ();
+            lock.Unlock ();
             if (!valid)
             {
                throw Internal::WFailedValidationException();
@@ -1301,7 +1265,7 @@ namespace bss { namespace thread { namespace STM
       WTransactionLocalValue<bool> m_flag;
    };
 
-}}}
+}
 
 #ifdef WIN32
 #pragma warning (pop)

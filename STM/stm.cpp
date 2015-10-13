@@ -40,7 +40,7 @@ using boost::bind;
 #include <windows.h>
 #endif
 
-namespace bss { namespace thread { namespace  STM
+namespace  WSTM
 {
    namespace Internal
    {
@@ -177,11 +177,23 @@ namespace bss { namespace thread { namespace  STM
       WException(msg)
    {}
    
-   WAtomicallyArgs::WAtomicallyArgs():
-      m_maxConflicts(UNLIMITED),
-      m_conRes(WConflictResolution::THROW),
-      m_maxRetries(UNLIMITED),
-      m_maxRetryWait (WTimeArg::UNLIMITED ())
+   WMaxConflicts::WMaxConflicts ():
+      m_max (UNLIMITED),
+      m_resolution (WConflictResolution::THROW)
+   {}
+   
+   WMaxConflicts::WMaxConflicts (const unsigned int m, const WConflictResolution::Value res) :
+      m_max(m),
+      m_resolution (res)
+   {}
+
+   WMaxRetryWait::WMaxRetryWait ()
+   {
+      //sets m_timeout to not_a_date_time for unlimited waiting
+   }
+   
+   WMaxRetryWait::WMaxRetryWait (const boost::system_time t):
+      m_timeout (t)
    {}
 
    namespace
@@ -378,7 +390,7 @@ namespace bss { namespace thread { namespace  STM
 
       struct WValueCoreBaseHash
       {
-         size_t operator()(const Internal::WVarCoreBase::Ptr& p) const
+         size_t operator()(const std::shared_ptr<Internal::WVarCoreBase>& p) const
          {
             return m_hash (p.get ());
          }
@@ -386,11 +398,11 @@ namespace bss { namespace thread { namespace  STM
          std::hash<Internal::WVarCoreBase*> m_hash;
       };
 
-      typedef std::unordered_map<Internal::WVarCoreBase::Ptr,
-                                 Internal::WValueBase::Ptr,
+      typedef std::unordered_map<std::shared_ptr<Internal::WVarCoreBase>,
+                                 std::shared_ptr<Internal::WValueBase>,
                                  WValueCoreBaseHash> VarMap;
    }
-
+   
    namespace Internal
    {
       //Data used for each transaction
@@ -1101,7 +1113,7 @@ namespace bss { namespace thread { namespace  STM
          (void)clearFlag; //avoid a compiler warning
 #endif _DEBUG
          
-         std::list<Internal::WValueBase::Ptr> dead;
+         std::list<std::shared_ptr<Internal::WValueBase>> dead;
          if (!m_data_p->GetSet ().empty ())
          {
             CommitLock ();
@@ -1211,7 +1223,7 @@ namespace bss { namespace thread { namespace  STM
       return false;
    }
 
-   const Internal::WValueBase* WAtomic::GetVarValue (const Internal::WVarCoreBase::Ptr& core_p)
+   const Internal::WValueBase* WAtomic::GetVarValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p)
    {
       //Look in the values of this transaction and its parents
       Internal::WTransactionData* data_p = m_data_p;
@@ -1239,7 +1251,7 @@ namespace bss { namespace thread { namespace  STM
       return nullptr;
    }
 
-   const Internal::WValueBase* WAtomic::GetVarGotValue (const Internal::WVarCoreBase::Ptr& core_p)
+   const Internal::WValueBase* WAtomic::GetVarGotValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p)
    {
       //Look in the values of this transaction and its parents
       Internal::WTransactionData* data_p = m_data_p;
@@ -1260,13 +1272,12 @@ namespace bss { namespace thread { namespace  STM
       return nullptr;      
    }
 
-   void WAtomic::SetVarGetValue (const Internal::WVarCoreBase::Ptr& core_p,
-                                 const Internal::WValueBase::Ptr& value_p)
+   void WAtomic::SetVarGetValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p, std::shared_ptr<Internal::WValueBase>&& value_p)
    {
-      m_data_p->GetGot ().insert (std::make_pair (core_p, value_p));
+      m_data_p->GetGot ()[core_p] = std::move (value_p);
    }
 
-   Internal::WValueBase* WAtomic::GetVarSetValue (const Internal::WVarCoreBase::Ptr& core_p)
+   Internal::WValueBase* WAtomic::GetVarSetValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p)
    {
       //Note that we only check this transaction's set values not the
       //parent's. Values need to be set in the current transaction,
@@ -1284,16 +1295,9 @@ namespace bss { namespace thread { namespace  STM
       }
    }
    
-   void WAtomic::SetVarValue (const Internal::WVarCoreBase::Ptr& core_p,
-                              const Internal::WValueBase::Ptr& value_p)
+   void WAtomic::SetVarValue (const std::shared_ptr<Internal::WVarCoreBase>& core_p, std::shared_ptr<Internal::WValueBase>&& value_p)
    {
-      VarMap::iterator it;
-      bool inserted = false;
-      boost::tie (it, inserted) = m_data_p->GetSet ().insert (std::make_pair (core_p, value_p));
-      if (!inserted)
-      {
-         it->second = value_p;
-      }
+      m_data_p->GetSet ()[core_p] = std::move (value_p);
    }
 
    Internal::WLocalValueBase* WAtomic::GetLocalValue (uint64_t key)
@@ -1344,7 +1348,10 @@ namespace bss { namespace thread { namespace  STM
 
    }
 
-   void WAtomic::AtomicallyImpl(WAtomicOp op, const WAtomicallyArgs& args)
+   void WAtomic::AtomicallyImpl(WAtomicOp op,
+                                const WMaxConflicts& maxConflicts,
+                                const WMaxRetries& maxRetries,
+                                const WMaxRetryWait& maxRetryWait)
    {      
 #ifdef _DEBUG
       //if this assertion fails we got a new transaction starting
@@ -1401,9 +1408,9 @@ namespace bss { namespace thread { namespace  STM
       unsigned int retries = 0;
       while(true)
       {
-         if(args.m_maxConflicts != UNLIMITED && badCommits >= args.m_maxConflicts)
+         if(maxConflicts.m_max != UNLIMITED && badCommits >= maxConflicts.m_max)
          {
-            if(WConflictResolution::THROW == args.m_conRes)
+            if(WConflictResolution::THROW == maxConflicts.m_resolution)
             {
                throw WMaxConflictsException(badCommits);
             }
@@ -1428,17 +1435,13 @@ namespace bss { namespace thread { namespace  STM
          catch(WRetryException& exc)
          {
             ++retries;
-            if(args.m_maxRetries != UNLIMITED && retries >= args.m_maxRetries)
+            if(maxRetries.m_value != UNLIMITED && retries >= maxRetries.m_value)
             {
                throw WMaxRetriesException(retries);
             }
             at.RunOnFails ();
 
-            WTimeArg timeout = exc.m_timeout;
-            if (args.m_maxRetryWait < timeout)
-            {
-               timeout = args.m_maxRetryWait;
-            }
+            const auto timeout = std::min (exc.m_timeout, maxRetryWait.m_timeout);
             if(!at.WaitForChanges(timeout))
             {
                throw WRetryTimeoutException();
@@ -1531,4 +1534,4 @@ namespace bss { namespace thread { namespace  STM
       return isSet;
    }
 
-}}}
+}
