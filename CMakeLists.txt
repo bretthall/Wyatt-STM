@@ -6,8 +6,7 @@ if (APPLE OR WIN32)
 endif()
 find_package(Boost 1.59 REQUIRED COMPONENTS)
 
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR
-    "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
     set(warnings "-Wall -Wextra -Werror")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
     set(warnings "/W4 /wd4512 /WX /EHsc")
@@ -16,6 +15,9 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
         #        This warning provides no useful information and will occur in
         #        well formed programs.
         #        <http://msdn.microsoft.com/en-us/library/hsyx7kbz.aspx>
+     if (NOT DEFINED MSVC_MBCS)
+        add_definitions(-DUNICODE -D_UNICODE)
+     endif()
 endif()
 if (NOT CONFIGURED_ONCE)
     set(CMAKE_CXX_FLAGS "${warnings}"
