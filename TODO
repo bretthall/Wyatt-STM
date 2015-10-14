@@ -1,5 +1,3 @@
-* Get rid of stm_new
-* Get rid of WTransactionData::MARKER_VALUE
 * std::list in WTransactionData (vector<std::function> would probably be better)
 * use move semantics in WTransactionData::MergeToParent
 * vector of WTransactionData objects instead of linked list?

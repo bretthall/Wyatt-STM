@@ -434,12 +434,15 @@ namespace  WSTM
          void Clear ();
          void ClearWrites ();
 
+#ifdef _DEBUG
          static void* const MARKER_VALUE;
-         
          void* GetMarker () const;
+#endif //_DEBUG
          
       private:         
+#ifdef _DEBUG
          void* const m_marker;
+#endif //_DEBUG
          
          bool m_active;
 
@@ -473,10 +476,14 @@ namespace  WSTM
          WOnFailList m_onFails;
       };
 
+#ifdef _DEBUG
       void* const WTransactionData::MARKER_VALUE = (void*)0xdeadbeef;
+#endif //_DEBUG
 
       WTransactionData::WTransactionData (WUpgradeableLock& lock):
+#ifdef _DEBUG
          m_marker (MARKER_VALUE),
+#endif //_DEBUG
          m_active (false),
          m_level (1),
          m_readLock (false),
@@ -494,7 +501,9 @@ namespace  WSTM
       }
 
       WTransactionData::WTransactionData (WTransactionData* parent_p):
+#ifdef _DEBUG
          m_marker (MARKER_VALUE),
+#endif //_DEBUG
          m_active (false),
          m_level (parent_p->m_level + 1),
          m_parent_p (parent_p),
@@ -731,10 +740,12 @@ namespace  WSTM
          }
       }
 
+#ifdef _DEBUG
       void* WTransactionData::GetMarker () const
       {
          return m_marker;
       }
+#endif //_DEBUG
    }
    
 
