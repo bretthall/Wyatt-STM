@@ -8,33 +8,21 @@
 
 #pragma once
 
-#ifdef WIN32
-#pragma warning (push)
-#pragma warning (disable: 4127 4239 4244 4251 4265 4275 4503 4505 4512 4640 4996 6011)
-#endif
+// #ifdef WIN32
+// #pragma warning (push)
+// #pragma warning (disable: 4127 4239 4244 4251 4265 4275 4503 4505 4512 4640 4996 6011)
+// #endif
 
 #include "exports.h"
 #include "FindArg.h"
 
 #include <boost/variant.hpp>
 #include <boost/format.hpp>
-#include <boost/functional.hpp>
-#include <boost/call_traits.hpp>
-#include <boost/utility.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/shared_mutex.hpp>
-#include <boost/thread/mutex.hpp>
 #include <boost/chrono/chrono.hpp>
 
-#include <string>
-#include <list>
-#include <vector>
-#include <deque>
-#include <set>
-#include <utility>
-
-#undef max
-#include <limits>
+#include <chrono>
 
 namespace WSTM
 {
@@ -50,9 +38,9 @@ namespace WSTM
    struct WSTM_CLASSAPI WProfileData
    {
       //!The start time of the profile run.
-      boost::posix_time::ptime m_start;
+      std::chrono::high_resolution_clock::time_point m_start;
       //!The end time of the profile run.
-      boost::posix_time::ptime m_end;
+      std::chrono::high_resolution_clock::time_point m_end;
       
       //!The number of conflicts during the run.
       long m_numConflicts;
@@ -1186,6 +1174,6 @@ namespace WSTM
 
 }
 
-#ifdef WIN32
-#pragma warning (pop)
-#endif
+// #ifdef WIN32
+// #pragma warning (pop)
+// #endif

@@ -10,31 +10,17 @@
 
 #include "stm.h"
 
-#include <boost/date_time/posix_time/posix_time_types.hpp>
 #include <boost/thread/condition_variable.hpp>
-#include <boost/thread/thread_time.hpp>
-#include <boost/foreach.hpp>
 #include <boost/format.hpp>
 using boost::format;
 using boost::str;
-#include <boost/bind.hpp>
-using boost::bind;
 
-#undef min
-#undef max
-#include <limits>
-#include <algorithm>
-#include <iterator>
-#include <map>
 #include <unordered_map>
 #include <atomic>
+#include <mutex>
 
 //Define this to turn on stm profiling
 //#define STM_PROFILING
-
-// #ifdef STM_PROFILING
-// #include <windows.h>
-// #endif
 
 namespace  WSTM
 {
@@ -88,9 +74,9 @@ namespace  WSTM
 #ifdef STM_PROFILING
       std::unique_lock<std::mutex> lock (s_profileMutex);
       s_profileStart = std::chrono::high_resolution_clock::now ();
-      InterlockedExchange (&s_numConflicts, 0);
-      InterlockedExchange (&s_numReadCommits, 0);
-      InterlockedExchange (&s_numWriteCommits, 0);      
+      s_numConflicts = 0;
+      s_numReadCommits = 0;
+      s_numWriteCommits = 0;      
 #endif
    }
 
@@ -1242,7 +1228,7 @@ namespace  WSTM
       }
       else
       {
-         while(true)
+         for (;;)
          {
             if(!DoValidation())
             {
@@ -1352,7 +1338,7 @@ namespace  WSTM
 
    namespace
    {
-#define TRACK_LAST_TRANS_CONFLICTS
+//#define TRACK_LAST_TRANS_CONFLICTS
 #ifdef TRACK_LAST_TRANS_CONFLICTS
 
       thread_local unsigned int s_lastTransConflicts = 0;
@@ -1436,7 +1422,7 @@ namespace  WSTM
       WSetLastTransConflicts setLastTransConflicts (badCommits);
 #endif //TRACK_LAST_TRANS_CONFLICTS
       unsigned int retries = 0;
-      while(true)
+      for (;;)
       {
          if(maxConflicts.m_max != UNLIMITED && badCommits >= maxConflicts.m_max)
          {

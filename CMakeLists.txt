@@ -6,6 +6,24 @@ if (APPLE OR WIN32)
 endif()
 find_package(Boost 1.59 REQUIRED COMPONENTS)
 
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR
+    "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+    set(warnings "-Wall -Wextra -Werror")
+elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
+    set(warnings "/W4 /wd4512 /WX /EHsc")
+        # Disabled Warnings:
+        #   4512 "assignment operator could not be generated"
+        #        This warning provides no useful information and will occur in
+        #        well formed programs.
+        #        <http://msdn.microsoft.com/en-us/library/hsyx7kbz.aspx>
+endif()
+if (NOT CONFIGURED_ONCE)
+    set(CMAKE_CXX_FLAGS "${warnings}"
+        CACHE STRING "Flags used by the compiler during all build types." FORCE)
+    set(CMAKE_C_FLAGS   "${warnings}"
+        CACHE STRING "Flags used by the compiler during all build types." FORCE)
+endif()
+
 include_directories(wstm STM SYSTEM ${Boost_INCLUDE_DIRS})
 
 #use this when all the files are fixed
