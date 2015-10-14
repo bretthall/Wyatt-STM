@@ -13,32 +13,18 @@
 #pragma warning (disable: 4127 4239 4244 4251 4265 4275 4503 4505 4512 4640 4996 6011)
 #endif
 
-#include "BSS/wtcbss.h"
-#include "BSS/Common/CombinatorArgs.h"
-#include "BSS/Common/TimeArg.h"
-#include "BSS/Common/NotCopyable.h"
+#include "exports.h"
+#include "FindArg.h"
 
-#include <boost/shared_ptr.hpp>
-#include <boost/any.hpp>
 #include <boost/variant.hpp>
 #include <boost/format.hpp>
-#include <boost/function.hpp>
-#include <boost/static_assert.hpp>
-#include <boost/type_traits/is_convertible.hpp>
-#include <boost/type_traits/is_same.hpp>
-#include <boost/type_traits/is_void.hpp>
-#include <boost/type_traits/remove_const.hpp>
-#include <boost/utility/enable_if.hpp>
 #include <boost/functional.hpp>
-#include <boost/mpl/if.hpp>
 #include <boost/call_traits.hpp>
 #include <boost/utility.hpp>
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread/tss.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/shared_mutex.hpp>
 #include <boost/thread/mutex.hpp>
-#include <boost/utility/declval.hpp>
+#include <boost/chrono/chrono.hpp>
 
 #include <string>
 #include <list>
@@ -56,12 +42,12 @@ namespace WSTM
     * Starts a profiling run. Note that STM_PROFILING must be defined
     * in stm.cpp for this to do anything.
     */
-   void BSS_LIBAPI StartProfiling ();
+   void WSTM_LIBAPI StartProfiling ();
 
    /**
     * Data from a STM profile run. Pass these objects to Checkpoint.
     */
-   struct BSS_CLASSAPI WProfileData
+   struct WSTM_CLASSAPI WProfileData
    {
       //!The start time of the profile run.
       boost::posix_time::ptime m_start;
@@ -85,23 +71,23 @@ namespace WSTM
     *  
     * @return The profile data for this run.
     */
-   WProfileData BSS_LIBAPI Checkpoint ();
+   WProfileData WSTM_LIBAPI Checkpoint ();
    
    /**
       Constant that denotes an unlimited number of tries.
    */
-   BSS_LIBAPI extern const unsigned int UNLIMITED;
+   WSTM_LIBAPI extern const unsigned int UNLIMITED;
 
    class WAtomic;
-   typedef boost::function<void (WAtomic&)> WAtomicOp;
+   typedef std::function<void (WAtomic&)> WAtomicOp;
    class WInconsistent;
-   typedef boost::function<void (WInconsistent&)> WInconsistentOp;
+   typedef std::function<void (WInconsistent&)> WInconsistentOp;
 	
    /**
       Enumeration that tells STM::atomically how to react when it
       reaches it's conflict limit.
    */
-   struct BSS_CLASSAPI WConflictResolution
+   struct WSTM_CLASSAPI WConflictResolution
    {
       //TODO: Switch to new-style enumerations
       enum Value
@@ -119,21 +105,40 @@ namespace WSTM
       };
    };
 
+   struct WTimeArg
+   {
+      using time_point = boost::chrono::steady_clock::time_point;
+      
+      WTimeArg ();
+      explicit WTimeArg (const time_point& t);
+      template <typename Duration_t>
+      explicit WTimeArg (const Duration_t& d):
+         m_time_o (boost::chrono::system_clock::now () + d)
+      {}
+
+      static WTimeArg Unlimited ();
+      bool IsUnlimited () const;
+
+      bool operator<(const WTimeArg& t) const;
+      
+      boost::optional<boost::chrono::steady_clock::time_point> m_time_o;
+   };
+
    namespace Internal
    {
 #ifdef _DEBUG
-      bool BSS_LIBAPI ReadLocked();
-      bool BSS_LIBAPI UpgradeLocked();
-      bool BSS_LIBAPI WriteLocked();
+      bool WSTM_LIBAPI ReadLocked();
+      bool WSTM_LIBAPI UpgradeLocked();
+      bool WSTM_LIBAPI WriteLocked();
 #endif //_DEBUG
-      
+
       struct WTransactionData;
 
       //Thrown by WVarCoreBase::Validate when validation fails
-      struct BSS_CLASSAPI WFailedValidationException
+      struct WSTM_CLASSAPI WFailedValidationException
       {};
 
-      struct BSS_CLASSAPI WValueBase
+      struct WSTM_CLASSAPI WValueBase
       {
          size_t m_version;
 
@@ -155,7 +160,7 @@ namespace WSTM
          m_value (value)
       {}
 
-      struct BSS_CLASSAPI WVarCoreBase
+      struct WSTM_CLASSAPI WVarCoreBase
       {
          virtual bool Validate (const WValueBase& val) const = 0;
          virtual std::shared_ptr<WValueBase> Commit (const std::shared_ptr<WValueBase>& val_p) = 0;
@@ -196,15 +201,15 @@ namespace WSTM
          m_value_p (val_p)
       {}
       
-      // void BSS_LIBAPI RunOrElse(WAtomicOp op1, WAtomicOp op2, WAtomic& at);
+      // void WSTM_LIBAPI RunOrElse(WAtomicOp op1, WAtomicOp op2, WAtomic& at);
 
-      struct BSS_CLASSAPI WLocalValueBase
+      struct WSTM_CLASSAPI WLocalValueBase
       {
       public:
          virtual ~WLocalValueBase ();
       };
 
-      uint64_t BSS_LIBAPI GetTransactionLocalKey ();
+      uint64_t WSTM_LIBAPI GetTransactionLocalKey ();
    }
 
    /**
@@ -236,7 +241,7 @@ namespace WSTM
          g.m_lockable_p = nullptr;
       }
 
-      WReadLockGuard& operator=(WReadLockGuard&& g):
+      WReadLockGuard& operator=(WReadLockGuard&& g)
       {
          m_lockable_p = g.m_lockable_p;
          g.m_lockable_p = nullptr;
@@ -269,7 +274,7 @@ namespace WSTM
     * changes by other threads before "conflict resolution" is used.  Pass STM::UNLIMITED to have no
     * limit (this is the default).
     */
-   struct BSS_CLASSAPI WMaxConflicts
+   struct WSTM_CLASSAPI WMaxConflicts
    {
       WMaxConflicts ();
       WMaxConflicts(const unsigned int m, const WConflictResolution::Value res = WConflictResolution::THROW);
@@ -290,17 +295,12 @@ namespace WSTM
     * limit is hit a WRetryTimeoutException will be thrown. Pass boost::not_a_date_time to have no
     * limit, this is the deafult.
     */
-   struct BSS_CLASSAPI WMaxRetryWait
+   struct WSTM_CLASSAPI WMaxRetryWait
    {
       WMaxRetryWait ();
-      WMaxRetryWait (const boost::system_time t);
-      template <typename Duration_t>
-      WMaxRetryWait (const Duration_t d)
-      {
-         m_timeout = boost::get_system_time () + d;
-      }
+      WMaxRetryWait (const WTimeArg& t);
       
-      boost::system_time m_timeout;
+      WTimeArg m_timeout;
    };
 
    /**
@@ -310,7 +310,7 @@ namespace WSTM
       validation and connect to a signal that is emitted when
       the transaction commits.
    */
-   class BSS_CLASSAPI WAtomic
+   class WSTM_CLASSAPI WAtomic
    {
       template <typename> friend class WVar;
       template <typename> friend class WTransactionLocalValue;
@@ -368,7 +368,7 @@ namespace WSTM
          around when the function runs will still be around by using
          shared_ptr or something similar.
       */
-      typedef boost::function<void (WAtomic&)> WBeforeCommitFunc;
+      typedef std::function<void (WAtomic&)> WBeforeCommitFunc;
       void BeforeCommit (WBeforeCommitFunc func);
       //@}
 
@@ -387,7 +387,7 @@ namespace WSTM
          when the function runs will still be around by using
          shared_ptr or something similar.
       */
-      typedef boost::function<void (void)> WAfterFunc;
+      typedef std::function<void (void)> WAfterFunc;
       void After(WAfterFunc func);
       //@}
 
@@ -401,7 +401,7 @@ namespace WSTM
        *
        * @param func The function to call.
        */
-      typedef boost::function<void (void)> WOnFailFunc;
+      typedef std::function<void (void)> WOnFailFunc;
       void OnFail (WOnFailFunc func);
       //@}
       
@@ -482,7 +482,7 @@ namespace WSTM
       reference to one of these objects as their only
       argument.  Its only use is to read Var's.
    */
-   class BSS_CLASSAPI WInconsistent
+   class WSTM_CLASSAPI WInconsistent
    {
    public:
       /**
@@ -618,7 +618,7 @@ namespace WSTM
    /**
     * Base class for all exceptions thrown by STM functions.
     */
-   struct BSS_CLASSAPI WException
+   struct WSTM_CLASSAPI WException
    {
       WException (const std::string& msg);
       const std::string m_msg;
@@ -630,7 +630,7 @@ namespace WSTM
    /**
       Base class for exceptions thrown by STM::atomically.
    */
-   struct BSS_CLASSAPI WCantContinueException : public WException
+   struct WSTM_CLASSAPI WCantContinueException : public WException
    {
       WCantContinueException(const std::string& msg_);
    };
@@ -638,7 +638,7 @@ namespace WSTM
    /**
       Exception thrown when STM::atomically hits it's retry limit.
    */
-   struct BSS_CLASSAPI WMaxRetriesException : public WCantContinueException
+   struct WSTM_CLASSAPI WMaxRetriesException : public WCantContinueException
    {
       WMaxRetriesException(unsigned int retries):
          WCantContinueException(
@@ -649,7 +649,7 @@ namespace WSTM
    /**
       Exception thrown when STM::atomically hits it's conflict limit.
    */
-   struct BSS_CLASSAPI WMaxConflictsException : public WCantContinueException
+   struct WSTM_CLASSAPI WMaxConflictsException : public WCantContinueException
    {
       WMaxConflictsException(unsigned int conflicts):
          WCantContinueException(
@@ -660,7 +660,7 @@ namespace WSTM
    /**
       Exception thrown when a retry times out.
    */
-   struct BSS_CLASSAPI WRetryTimeoutException : public WCantContinueException
+   struct WSTM_CLASSAPI WRetryTimeoutException : public WCantContinueException
    {
       WRetryTimeoutException():
          WCantContinueException("Retry timed out")
@@ -701,14 +701,14 @@ namespace WSTM
    */
    template <typename Op_t, typename ... Args>
    auto Atomically(const Op_t& op, const Args&... args) -> 
-                   boost::enable_if_t<boost::is_same<void, decltype (op (std::declval<WAtomic>()))>, void>
+      std::enable_if_t<std::is_same<void, decltype (op (std::declval<WAtomic>()))>::value, void>
    {
       WAtomic::AtomicallyImpl(boost::cref(op), FindArg<WMaxConflicts>(), FindArg<WMaxRetries>(), FindArg<WMaxRetryWait>());
    }
 
    template <typename Op_t, typename ... Args>
    auto Atomically(const Op_t& op, const Args&... args) -> 
-      boost::enable_if_t<!boost::is_same<void, decltype (op (std::declval<WAtomic>()))>, decltype (op (std::declval<WAtomic>()))>
+      std::enable_if_t<!std::is_same<void, decltype (op (std::declval<WAtomic>()))>::value, decltype (op (std::declval<WAtomic>()))>
    {
       typedef decltype (op (std::declval<WAtomic>())) ResultType;
       Internal::WValOp<WAtomic, Op_t, ResultType, std::is_reference<ResultType>::value> val_op(op);
@@ -717,99 +717,17 @@ namespace WSTM
    }   
    //!}
 
-   //!{
-   /**
-      A function object that runs another function within
-      STM::Atomically().
-
-      @param Result_t The result type of the wrapped
-      function.
-   */
-   template <typename Result_t>
-   struct WRunAtomically
-   {
-      typedef Result_t result_type;
-
-      /**
-         Creates a RunAtomically object.
-
-         @param Func_t The type of function to wrap.  The
-         result type of this type must be Result_t and it
-         must take STM::Atomic as its argument.
-
-         @param f The function to wrap.
-      */
-      template <typename Func_t>
-      WRunAtomically(Func_t f):
-         m_func(f)
-      {}
-
-      /**
-         Calls the atomically() passing it the wrapped
-         function.
-      */
-      result_type operator()()
-      {
-         return Atomically(m_func);
-      }
-
-      boost::function<result_type (WAtomic&)> m_func;
-   };
-
-   template <>
-   struct WRunAtomically<void>
-   {
-      typedef void result_type;
-
-      /**
-         Creates a RunAtomically object.
-
-         @param Func_t The type of function to wrap.  The
-         result type of this type must be void and it
-         must take STM::Atomic as its argument.
-
-         @param f The function to wrap.
-      */
-      template <typename Func_t>
-      WRunAtomically(Func_t f):
-         m_func(f)
-      {}
-
-      /**
-         Calls the atomically() passing it the wrapped
-         function.
-      */
-      void operator()()
-      {
-         Atomically(m_func);
-      }
-
-      boost::function<void (WAtomic&)> m_func;
-   };
-   //!}
-			
-   /**
-      Convenience function for creating RunAtomically
-      objects.
-   */
-   template <typename Func_t>
-   WRunAtomically<typename Internal::WAtomicOpResultType<Func_t>::type>
-   RunAtomically(const Func_t& f)
-   {
-      return WRunAtomically<typename Internal::WAtomicOpResultType<Func_t>::type>(f);
-   }
-
    /**
       Returns true if the current thread is running under
       STM::atomically.
    */
-   BSS_LIBAPI bool InAtomic();
+   WSTM_LIBAPI bool InAtomic();
 
    /**
       Exception thrown by WNoAtomic if it is constructed
       within a transaction.
    */
-   struct BSS_CLASSAPI WInAtomicError : public WException
+   struct WSTM_CLASSAPI WInAtomicError : public WException
    {
       WInAtomicError();
    };
@@ -825,7 +743,7 @@ namespace WSTM
 
       \sa NO_ATOMIC
    */
-   class BSS_CLASSAPI WNoAtomic
+   class WSTM_CLASSAPI WNoAtomic
    {
    public:
       WNoAtomic();
@@ -836,13 +754,13 @@ namespace WSTM
       that cannot be called from within a STM transaction. If
       the function is called an InAtomicError will be thrown.
    */
-#define NO_ATOMIC const ::bss::thread::STM::WNoAtomic& = ::bss::thread::STM::WNoAtomic()
+#define NO_ATOMIC const ::WSTM::WNoAtomic& = ::WSTM::WNoAtomic()
    /**
       If NO_ATOMIC is used in a function's declaration this
       macro shoudl be used for that argument in the
       function's definition.
    */
-#define NO_ATOMIC_IMPL const ::bss::thread::STM::WNoAtomic&
+#define NO_ATOMIC_IMPL const ::WSTM::WNoAtomic&
             
    //!{
    /**
@@ -923,7 +841,7 @@ namespace WSTM
       the outermost atomically call. By default this function waits
       forever.
    */
-   BSS_LIBAPI void Retry(WAtomic& at, const WTimeArg& timeout = WTimeArg::UNLIMITED ());
+   WSTM_LIBAPI void Retry(WAtomic& at, const WTimeArg& timeout = WTimeArg::Unlimited ());
 
    /**
       A transactional variable.  Access to the contents of
@@ -1154,13 +1072,14 @@ namespace WSTM
    template <typename Type_t>
    class WTransactionLocalValue
    {
-      NO_COPYING (WTransactionLocalValue);
-      
    public:
       WTransactionLocalValue ():
          m_key (Internal::GetTransactionLocalKey ())
       {}
 
+      WTransactionLocalValue (const WTransactionLocalValue&) =delete;
+      WTransactionLocalValue& operator=(const WTransactionLocalValue&) =delete;
+      
       //!{
       /**
        * Gets the current value of variable.
@@ -1253,7 +1172,7 @@ namespace WSTM
     * and children. This method is here for those cases where an operation needs to be done at most
     * once per transaction.
     */
-   class BSS_CLASSAPI WTransactionLocalFlag
+   class WSTM_CLASSAPI WTransactionLocalFlag
    {
    public:
       /**

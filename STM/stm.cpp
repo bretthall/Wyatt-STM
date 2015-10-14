@@ -6,15 +6,10 @@
  Copyright (c) 2002-2013. All rights reserved.
 ****************************************************************************/
 
-#include "stdafx.h"
-
 #pragma warning (disable: 4503)
 
 #include "stm.h"
 
-using boost::shared_ptr;
-
-using boost::thread_specific_ptr;
 #include <boost/date_time/posix_time/posix_time_types.hpp>
 #include <boost/thread/condition_variable.hpp>
 #include <boost/thread/thread_time.hpp>
@@ -24,7 +19,6 @@ using boost::format;
 using boost::str;
 #include <boost/bind.hpp>
 using boost::bind;
-#include <boost/atomic.hpp>
 
 #undef min
 #undef max
@@ -33,12 +27,14 @@ using boost::bind;
 #include <iterator>
 #include <map>
 #include <unordered_map>
+#include <atomic>
+
 //Define this to turn on stm profiling
 //#define STM_PROFILING
 
-#ifdef STM_PROFILING
-#include <windows.h>
-#endif
+// #ifdef STM_PROFILING
+// #include <windows.h>
+// #endif
 
 namespace  WSTM
 {
@@ -160,11 +156,11 @@ namespace  WSTM
       //"retry" the current operation. 
       struct WRetryException
       {
-         WRetryException(const boost::system_time& timeout):
+         WRetryException(const WTimeArg& timeout):
             m_timeout(timeout)
          {}
 
-         const boost::system_time m_timeout;
+         const WTimeArg m_timeout;
       };   
    }
 
@@ -192,7 +188,7 @@ namespace  WSTM
       //sets m_timeout to not_a_date_time for unlimited waiting
    }
    
-   WMaxRetryWait::WMaxRetryWait (const boost::system_time t):
+   WMaxRetryWait::WMaxRetryWait (const WTimeArg& t):
       m_timeout (t)
    {}
 
@@ -249,7 +245,7 @@ namespace  WSTM
          void unlock(const int i = 1);
          
          void UnlockAll ();
-         bool WaitForCommit(const boost::system_time* stop_p);
+         bool WaitForCommit(const WTimeArg& timeout);
             
          int m_count;
          typedef typename LockTraits_t::LockType Lock;
@@ -332,21 +328,21 @@ namespace  WSTM
       }
       
       template <typename LockTraits_t>
-      bool WLockImpl<LockTraits_t>::WaitForCommit(const boost::system_time* stop_p)
+      bool WLockImpl<LockTraits_t>::WaitForCommit(const WTimeArg& timeout)
       {
          if(!m_lock.owns_lock())
          {
             throw boost::lock_error();
          }
 
-         if(!stop_p)
+         if(timeout.IsUnlimited ())
          {
             s_commitSignal.wait(m_lock);
             return true;
          }
          else
          {
-            return s_commitSignal.timed_wait(m_lock, *stop_p);
+            return (s_commitSignal.wait_until (m_lock, *timeout.m_time_o) != boost::cv_status::timeout);
          }
       }
 
@@ -412,8 +408,11 @@ namespace  WSTM
 
          WTransactionData* CreateChild ();
 
-         WTransactionData (const WTransactionData*) = delete;
-         WTransactionData& operator=(const WTransactionData*) = delete;
+         //Don't use this directly, call CreateChild instead
+         explicit WTransactionData (WTransactionData* parent);
+
+         WTransactionData (const WTransactionData&) = delete;
+         WTransactionData& operator=(const WTransactionData&) = delete;
 
          void Activate ();
          bool IsActive () const;
@@ -453,9 +452,7 @@ namespace  WSTM
          
          void* GetMarker () const;
          
-      private:
-         explicit WTransactionData (const WTransactionData* parent);
-         
+      private:         
          void* const m_marker;
          
          bool m_active;
@@ -510,7 +507,7 @@ namespace  WSTM
          return m_child_p.get ();
       }
 
-      explicit WTransactionData (const WTransactionData* parent_p):
+      WTransactionData::WTransactionData (WTransactionData* parent_p):
          m_marker (MARKER_VALUE),
          m_active (false),
          m_level (parent_p->m_level + 1),
@@ -645,7 +642,7 @@ namespace  WSTM
          {
             VarMap::iterator it;
             bool inserted = false;
-            boost::tie (it, inserted) = m_parent_p->m_got.insert (value);
+            std::tie (it, inserted) = m_parent_p->m_got.insert (value);
             if (!inserted)
             {
                it->second = value.second;
@@ -655,7 +652,7 @@ namespace  WSTM
          {
             VarMap::iterator it;
             bool inserted = false;
-            boost::tie (it, inserted) = m_parent_p->m_set.insert (value);
+            std::tie (it, inserted) = m_parent_p->m_set.insert (value);
             if (!inserted)
             {
                it->second = value.second;
@@ -682,14 +679,14 @@ namespace  WSTM
          WTransactionData* root_p = m_parent_p;
          while (root_p->m_parent_p)
          {
-            root_p = root_p->m_parent_p.get ();
+            root_p = root_p->m_parent_p;
          }
          
          for (VarMap::value_type& value: m_got)
          {
             VarMap::iterator it;
             bool inserted = false;
-            boost::tie (it, inserted) = m_parent_p->m_got.insert (value);
+            std::tie (it, inserted) = m_parent_p->m_got.insert (value);
             if (!inserted)
             {
                it->second = value.second;
@@ -738,13 +735,13 @@ namespace  WSTM
             m_locals.clear ();
          }
 
-         if (!m_upgradeLock_p->locked ())
+         if (!m_upgradeLock.locked ())
          {
             m_readLock.UnlockAll ();
          }
          else if (m_level == 1)
          {
-            m_upgradeLock_p->UnlockAll ();
+            m_upgradeLock.UnlockAll ();
          }
       }
 
@@ -788,8 +785,8 @@ namespace  WSTM
       private:
          Internal::WTransactionData* GetNewNoActivate ();
 
-         std::unique_ptr<WTransactionData> m_root_p;
-         WTransactionData* m_cur_p;
+         std::unique_ptr<Internal::WTransactionData> m_root_p;
+         Internal::WTransactionData* m_cur_p;
          WUpgradeableLock m_lock;
       };
 
@@ -840,7 +837,7 @@ namespace  WSTM
 
       WTransactionDataList::WPushGuard::WPushGuard (std::unique_ptr<Internal::WTransactionData>&& root_p, Internal::WTransactionData* cur_p):
          m_root_p (std::move (root_p)),
-         m_cur_p (cur_p);
+         m_cur_p (cur_p)
       {}
       
       WTransactionDataList::WPushGuard::WPushGuard (WPushGuard&& g):
@@ -861,7 +858,7 @@ namespace  WSTM
          auto oldCur_p = m_cur_p;
          m_root_p.reset ();
          m_cur_p = nullptr;
-         return WPushGuard (oldRoot_p, oldCur_p);
+         return WPushGuard (std::move (oldRoot_p), oldCur_p);
       }
 
       void WTransactionDataList::MergeToParent ()
@@ -931,6 +928,41 @@ namespace  WSTM
       {}
 #endif CHECK_TLS_INTEGRITY
 
+   }
+
+   WTimeArg::WTimeArg ()
+   {}
+   
+   WTimeArg::WTimeArg (const time_point& t):
+      m_time_o (t)
+   {}
+
+   WTimeArg WTimeArg::Unlimited ()
+   {
+      return WTimeArg ();
+   }
+
+   bool WTimeArg::IsUnlimited () const
+   {
+      return !!m_time_o;
+   }
+
+   bool WTimeArg::operator<(const WTimeArg& t) const
+   {
+      if (IsUnlimited ())
+      {
+         //nothing is less than unlimited
+         return false;
+      }
+      else if (!t.IsUnlimited ())
+      {
+         return (*m_time_o < *t.m_time_o);
+      }
+      else
+      {
+         //something limited is always less than an unlimited value
+         return true;
+      }
    }
 
    namespace Internal
@@ -1205,8 +1237,8 @@ namespace  WSTM
             {
                return true;
             }
-            m_data_p->GetReadLock ().WaitForCommit(&timeout);
-         }while(boost::get_system_time() < timeout);
+            m_data_p->GetReadLock ().WaitForCommit(timeout);
+         }while(boost::chrono::steady_clock::now () < *timeout.m_time_o);
       }
       else
       {
@@ -1216,7 +1248,7 @@ namespace  WSTM
             {
                return true;
             }
-            m_data_p->GetReadLock ().WaitForCommit(0);
+            m_data_p->GetReadLock ().WaitForCommit(timeout);
          }
       }
 
@@ -1322,10 +1354,8 @@ namespace  WSTM
    {
 #define TRACK_LAST_TRANS_CONFLICTS
 #ifdef TRACK_LAST_TRANS_CONFLICTS
-      void DoNothing (int*)
-      {}
-      
-      boost::thread_specific_ptr<int> s_lastTransConflicts (DoNothing);
+
+      thread_local unsigned int s_lastTransConflicts = 0;
 
       struct WSetLastTransConflicts
       {
@@ -1342,7 +1372,7 @@ namespace  WSTM
 
       WSetLastTransConflicts::~WSetLastTransConflicts ()
       {
-         s_lastTransConflicts.reset ((int*)m_badCommits);
+         s_lastTransConflicts = m_badCommits;
       }
 #endif //TRACK_LAST_TRANS_CONFLICTS
 
@@ -1401,7 +1431,7 @@ namespace  WSTM
 
       unsigned int badCommits = 0;
 #ifdef TRACK_LAST_TRANS_CONFLICTS
-      const size_t numConflictsLastTime = (size_t)s_lastTransConflicts.get ();
+      const size_t numConflictsLastTime = s_lastTransConflicts;
       (void)numConflictsLastTime;
       WSetLastTransConflicts setLastTransConflicts (badCommits);
 #endif //TRACK_LAST_TRANS_CONFLICTS

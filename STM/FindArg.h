@@ -52,12 +52,12 @@ namespace WSTM
     * @param name The name that shoudl be given to the create type.
     * @param def The default value for m_value.
     */
-#define MAKE_ARG_TYPE(type, name, def)             \
-   struct name                                     \
-   {                                               \
-      type m_value;                                \
-      name () : m_value (def) {}                   \
-      name (const type value) : m_value (value) {} \
+#define FIND_ARG__MAKE_ARG_TYPE(type, name, def)             \
+   struct name                                               \
+   {                                                         \
+      type m_value;                                          \
+      name () : m_value (def) {}                             \
+      name (const type value) : m_value (value) {}           \
    };//
    
 }
