@@ -8,11 +8,6 @@
 
 #pragma once
 
-// #ifdef WIN32
-// #pragma warning (push)
-// #pragma warning (disable: 4127 4239 4244 4251 4265 4275 4503 4505 4512 4640 4996 6011)
-// #endif
-
 #include "exports.h"
 #include "FindArg.h"
 
@@ -1173,7 +1168,3 @@ namespace WSTM
    };
 
 }
-
-// #ifdef WIN32
-// #pragma warning (pop)
-// #endif
