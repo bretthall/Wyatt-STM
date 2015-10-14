@@ -6,12 +6,12 @@ if (APPLE OR WIN32)
 endif()
 find_package(Boost 1.59 REQUIRED COMPONENTS)
 
-include_directories(STM SYSTEM ${Boost_INCLUDE_DIRS})
+include_directories(wstm STM SYSTEM ${Boost_INCLUDE_DIRS})
 
 #use this when all the files are fixed
-#file(GLOB SOURCES "STM/*.cpp")
+#file(GLOB SOURCES "src/*.cpp")
 
 #for now add source files by hand
-set(SOURCES STM/stm.cpp)
+set(SOURCES src/stm.cpp)
 
 add_library(wstm ${SOURCES})
