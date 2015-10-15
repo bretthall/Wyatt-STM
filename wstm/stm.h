@@ -686,7 +686,7 @@ namespace WSTM
    auto Atomically(const Op_t& op, const Args&... args) -> 
       std::enable_if_t<std::is_same<void, decltype (op (std::declval<WAtomic>()))>::value, void>
    {
-      WAtomic::AtomicallyImpl(boost::cref(op), FindArg<WMaxConflicts>(), FindArg<WMaxRetries>(), FindArg<WMaxRetryWait>());
+      WAtomic::AtomicallyImpl(std::cref(op), findArg<WMaxConflicts>(args...), findArg<WMaxRetries>(args...), findArg<WMaxRetryWait>(args...));
    }
 
    template <typename Op_t, typename ... Args>
@@ -695,7 +695,7 @@ namespace WSTM
    {
       typedef decltype (op (std::declval<WAtomic>())) ResultType;
       Internal::WValOp<WAtomic, Op_t, ResultType, std::is_reference<ResultType>::value> val_op(op);
-      WAtomic::AtomicallyImpl(boost::ref(val_op), FindArg<WMaxConflicts>(), FindArg<WMaxRetries>(), FindArg<WMaxRetryWait>());
+      WAtomic::AtomicallyImpl(std::ref(val_op), findArg<WMaxConflicts>(args...), findArg<WMaxRetries>(args...), findArg<WMaxRetryWait>(args...));
       return val_op.GetResult();
    }   
    //!}
@@ -787,7 +787,7 @@ namespace WSTM
                        boost::is_same<void,
                        typename Internal::WInconsistentOpResultType<Op_t>::type> >::type* = 0)
    {
-      WInconsistent::InconsistentlyImpl(boost::cref(op));
+      WInconsistent::InconsistentlyImpl(std::cref(op));
    }
 
    template <typename Op_t>
@@ -801,7 +801,7 @@ namespace WSTM
    {
       typedef typename Internal::WInconsistentOpResultType<Op_t>::type ResultType;
       Internal::WValOp<WInconsistent, Op_t, ResultType, std::is_reference<ResultType>::value> val_op(op);
-      WInconsistent::InconsistentlyImpl(boost::ref(val_op));
+      WInconsistent::InconsistentlyImpl(std::ref(val_op));
       return val_op.GetResult();
    }
    //!}
@@ -914,7 +914,7 @@ namespace WSTM
       Type GetInconsistent(WInconsistent& ins) const
       {
          WReadLockGuard<WInconsistent> lock (ins);
-         const Internal::WValue<Type_t>::ConstPtr val_p = m_core_p->m_value_p;
+         const typename Internal::WValue<Type_t>::ConstPtr val_p = m_core_p->m_value_p;
          lock.Unlock ();
          return val_p->m_value;
       }

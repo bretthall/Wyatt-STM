@@ -38,7 +38,7 @@ namespace WSTM
    }
 
    template <typename Wanted_t>
-   typename Wanted_t findArg ()
+   Wanted_t findArg ()
    {
       return Wanted_t ();
    }

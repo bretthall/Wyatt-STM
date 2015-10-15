@@ -6,7 +6,9 @@
  Copyright (c) 2002-2013. All rights reserved.
 ****************************************************************************/
 
+#ifdef WIN32
 #pragma warning (disable: 4503)
+#endif //WIN32
 
 #include "stm.h"
 
@@ -18,6 +20,7 @@ using boost::str;
 #include <unordered_map>
 #include <atomic>
 #include <mutex>
+#include <list>
 
 //Define this to turn on stm profiling
 //#define STM_PROFILING
@@ -923,7 +926,7 @@ namespace  WSTM
 #else
       void WTransactionDataList::CheckIntegrity () const
       {}
-#endif CHECK_TLS_INTEGRITY
+#endif //CHECK_TLS_INTEGRITY
 
    }
 
@@ -1140,7 +1143,7 @@ namespace  WSTM
          };
          WClearFlag clearFlag;
          (void)clearFlag; //avoid a compiler warning
-#endif _DEBUG
+#endif //_DEBUG
          
          std::list<std::shared_ptr<Internal::WValueBase>> dead;
          if (!m_data_p->GetSet ().empty ())
@@ -1384,7 +1387,7 @@ namespace  WSTM
       //if this assertion fails we got a new transaction starting
       //while the current transaction is committing
       assert(!s_committing);
-#endif _DEBUG
+#endif //_DEBUG
 
       WAtomic at;
       assert (!at.m_committed);

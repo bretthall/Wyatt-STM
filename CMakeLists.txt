@@ -4,10 +4,15 @@ project(wyatt-stm)
 if (APPLE OR WIN32)
     set(Boost_USE_STATIC_LIBS TRUE)
 endif()
-find_package(Boost 1.59 REQUIRED COMPONENTS)
+find_package(Boost 1.57 REQUIRED COMPONENTS)
 
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+message (STATUS "compiler = ${CMAKE_CXX_COMPILER_ID}")
+
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
     set(warnings "-Wall -Wextra -Werror")
+    set_property(GLOBAL PROPERTY CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
+    message (STATUS "debug flags = ${CMAKE_CXX_FLAGS_DEBUG}")
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
     set(warnings "/W4 /wd4512 /WX /EHsc")
         # Disabled Warnings:
@@ -35,3 +40,4 @@ include_directories(wstm STM SYSTEM ${Boost_INCLUDE_DIRS})
 set(SOURCES src/stm.cpp)
 
 add_library(wstm ${SOURCES})
+set_property(TARGET wstm PROPERTY CXX_STANDARD 14)
