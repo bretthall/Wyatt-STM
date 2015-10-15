@@ -128,11 +128,17 @@ namespace  WSTM
       //commits locked out.
       boost::upgrade_mutex s_readMutex;
 
+#ifdef APPLE_CLANG
+#define THREAD_LOCAL __thread
+#else
+#define THREAD_LOCAL thread_local
+#endif //APPLE_CLANG      
+      
 #ifdef _DEBUG
-      thread_local bool s_readMutexReadLocked = false;
-      thread_local bool s_readMutexUpgradeLocked = false;
-      thread_local bool s_readMutexWriteLocked = false;
-      thread_local bool s_committing = false;
+      THREAD_LOCAL bool s_readMutexReadLocked = false;
+      THREAD_LOCAL bool s_readMutexUpgradeLocked = false;
+      THREAD_LOCAL bool s_readMutexWriteLocked = false;
+      THREAD_LOCAL bool s_committing = false;
 #endif //_DEBUG
       
       //This signal is notified when a commit succeeds. s_readMutex
@@ -1355,7 +1361,7 @@ namespace  WSTM
 //#define TRACK_LAST_TRANS_CONFLICTS
 #ifdef TRACK_LAST_TRANS_CONFLICTS
 
-      thread_local unsigned int s_lastTransConflicts = 0;
+      THREAD_LOCAL unsigned int s_lastTransConflicts = 0;
 
       struct WSetLastTransConflicts
       {

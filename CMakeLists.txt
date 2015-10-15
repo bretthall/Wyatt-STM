@@ -6,13 +6,13 @@ if (APPLE OR WIN32)
 endif()
 find_package(Boost 1.57 REQUIRED COMPONENTS)
 
-message (STATUS "compiler = ${CMAKE_CXX_COMPILER_ID}")
-
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
     set(warnings "-Wall -Wextra -Werror")
     set_property(GLOBAL PROPERTY CXX_STANDARD_REQUIRED ON)
     set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
-    message (STATUS "debug flags = ${CMAKE_CXX_FLAGS_DEBUG}")
+    if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
+       add_definitions(-DAPPLE_CLANG)
+    endif()
 elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
     set(warnings "/W4 /wd4512 /WX /EHsc")
         # Disabled Warnings:
