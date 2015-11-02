@@ -6,17 +6,13 @@
  Copyright (c) 2002-2013. All rights reserved.
 ****************************************************************************/
 
-#ifdef WIN32
-#pragma warning (disable: 4503)
-#endif //WIN32
-
 #include "stm.h"
 
-#include <boost/thread/condition_variable.hpp>
 #include <boost/format.hpp>
 using boost::format;
 using boost::str;
 
+#include <condition_variable>
 #include <unordered_map>
 #include <atomic>
 #include <mutex>
@@ -145,7 +141,7 @@ namespace  WSTM
       //must be used with this signal. A read lock lock should be
       //used when waiting. A write lock shoudl be held when
       //notifiying.
-      boost::condition_variable_any s_commitSignal;
+      std::condition_variable_any s_commitSignal;
          
       //exception thrown by Retry() to signal AtomicallyImpl that it should
       //"retry" the current operation. 
@@ -177,16 +173,7 @@ namespace  WSTM
       m_max(m),
       m_resolution (res)
    {}
-
-   WMaxRetryWait::WMaxRetryWait ()
-   {
-      //sets m_timeout to not_a_date_time for unlimited waiting
-   }
    
-   WMaxRetryWait::WMaxRetryWait (const WTimeArg& t):
-      m_timeout (t)
-   {}
-
    namespace
    {
       
@@ -337,7 +324,7 @@ namespace  WSTM
          }
          else
          {
-            return (s_commitSignal.wait_until (m_lock, *timeout.m_time_o) != boost::cv_status::timeout);
+            return (s_commitSignal.wait_until (m_lock, *timeout.m_time_o) != std::cv_status::timeout);
          }
       }
 
@@ -495,6 +482,7 @@ namespace  WSTM
 #endif //_DEBUG
          m_active (false),
          m_level (1),
+         m_parent_p (nullptr),
          m_readLock (false),
          m_upgradeLock (lock)
       {}
@@ -1244,7 +1232,7 @@ namespace  WSTM
                return true;
             }
             m_data_p->GetReadLock ().WaitForCommit(timeout);
-         }while(boost::chrono::steady_clock::now () < *timeout.m_time_o);
+         }while(std::chrono::steady_clock::now () < *timeout.m_time_o);
       }
       else
       {
@@ -1477,7 +1465,7 @@ namespace  WSTM
             }
             at.RunOnFails ();
 
-            const auto timeout = std::min (exc.m_timeout, maxRetryWait.m_timeout);
+            const auto timeout = std::min (exc.m_timeout, maxRetryWait.m_value);
             if(!at.WaitForChanges(timeout))
             {
                throw WRetryTimeoutException();

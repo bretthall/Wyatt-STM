@@ -6,15 +6,9 @@
  Copyright (c) 2002-2013. All rights reserved.
 ****************************************************************************/
 
-#include "StdAfx.h"
-
 #pragma warning (disable: 4244)
 
-#include "BSS/Thread/STM/stm.h"
-#include "BSS/Thread/STM/stm_mem_check.h"
-#include "BSS/Thread/Thread.h"
-#include "BSS/Common/NotCopyable.h"
-#include "BSS/Common/Unused.h"
+#include "stm.h"
 
 #pragma warning (push)
 #pragma warning (disable: 4127 4244 4265 4389 4503 4512 4640 6011)
@@ -24,8 +18,6 @@ using boost::str;
 using boost::format;
 #include <boost/shared_ptr.hpp>
 #include <boost/test/unit_test.hpp>
-#include <boost/thread/thread.hpp>
-using boost::thread;
 #include <boost/thread/barrier.hpp>
 using boost::barrier;
 #include <boost/timer.hpp>
@@ -36,26 +28,30 @@ using boost::is_base_of;
 #pragma warning (pop)
 
 #include <cstdlib>
+#include <thread>
 
-namespace BSTM = bss::thread::STM;
-namespace bpt = boost::posix_time;
+/**
+ * Marks a variable as unused so that the compiler will not issue
+ * warnings. 
+ */
+#define UNUSED_VAR(VAR) (void)VAR
 
 BOOST_AUTO_TEST_SUITE (STM)
 
 namespace
 {
 	template <typename Type_t>
-	struct WVarPtr : public boost::shared_ptr<BSTM::WVar<Type_t> >
+	struct WVarPtr : public std::shared_ptr<WSTM::WVar<Type_t>>
 	{
 		WVarPtr()
 		{}
 						
-		WVarPtr(BSTM::WVar<Type_t>* var_p):
-			boost::shared_ptr<BSTM::WVar<Type_t> >(var_p)
+		WVarPtr(WSTM::WVar<Type_t>* var_p):
+			std::shared_ptr<WSTM::WVar<Type_t> >(var_p)
 		{}
 	};
 
-	typedef boost::shared_ptr<boost::barrier> WBarrierPtr;
+	typedef std::shared_ptr<boost::barrier> WBarrierPtr;
 }
 
 BOOST_AUTO_TEST_SUITE(ExceptionTests)
@@ -63,32 +59,32 @@ BOOST_AUTO_TEST_SUITE(ExceptionTests)
 BOOST_AUTO_TEST_CASE (ExceptionTests_test_cantContinueException)
 {
 	BOOST_CHECK((boost::is_base_of<
-                BSTM::WException,
-                BSTM::WCantContinueException>::value));
+                WSTM::WException,
+                WSTM::WCantContinueException>::value));
 	const std::string msg = "CantContinueException";
-	BSTM::WCantContinueException exc(msg);
+	WSTM::WCantContinueException exc(msg);
 	BOOST_CHECK(exc.m_msg == msg);
 }
 
 BOOST_AUTO_TEST_CASE (ExceptionTests_test_MaxRetriesException)
 {
 	BOOST_CHECK((boost::is_base_of<
-                BSTM::WCantContinueException,
-                BSTM::WMaxRetriesException>::value));
+                WSTM::WCantContinueException,
+                WSTM::WMaxRetriesException>::value));
 	const unsigned int num = 10;
 	const std::string msg = str(format("Hit maximum number of retries (%1%)") % num);
-	BSTM::WMaxRetriesException exc(num);
+	WSTM::WMaxRetriesException exc(num);
 	BOOST_CHECK(exc.m_msg == msg);
 }
 
 BOOST_AUTO_TEST_CASE (ExceptionTests_test_MaxConflictsException)
 {
 	BOOST_CHECK((boost::is_base_of<
-                BSTM::WCantContinueException,
-                BSTM::WMaxConflictsException>::value));
+                WSTM::WCantContinueException,
+                WSTM::WMaxConflictsException>::value));
 	const unsigned int num = 10;
 	const std::string msg = str(format("Hit maximum number of conflicts (%1%)") % num);
-	BSTM::WMaxConflictsException exc(num);
+	WSTM::WMaxConflictsException exc(num);
 	BOOST_CHECK(exc.m_msg == msg);
 }
 
@@ -130,7 +126,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_DtorCalled)
 {
    //Makes sure that destructors of objects stored in WVar's have
    //their desatructors called when the WVar is set.
-   BSTM::WVar<WVarDtorTester> test (WVarDtorTester (1));
+   WSTM::WVar<WVarDtorTester> test (WVarDtorTester (1));
    test.Set (WVarDtorTester (2));
    BOOST_REQUIRE_EQUAL (3, varDtorDead.size ());
    BOOST_CHECK_EQUAL (1, varDtorDead[0].first);
@@ -144,7 +140,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_DtorCalled)
 namespace
 {
 	const unsigned int DEFAULT_COMMIT_SLEEP = 30;
-	void Wait(boost::shared_ptr<boost::barrier>& barrier_p)
+	void Wait(std::shared_ptr<boost::barrier>& barrier_p)
 	{
 		if(0 != barrier_p.get())
 		{
@@ -152,7 +148,7 @@ namespace
 		}
 	}
 	
-	int IncrementInt(BSTM::WVar<int>& v, const int inc, BSTM::WAtomic& at)
+	int IncrementInt(WSTM::WVar<int>& v, const int inc, WSTM::WAtomic& at)
 	{
 		const int cur = v.Get(at);
 		v.Set(cur + inc, at);
@@ -163,11 +159,11 @@ namespace
 BOOST_AUTO_TEST_CASE (StmVarTests_test_int_increment)
 {
 	int cur = 1;
-	BSTM::WVar<int> v(cur);
+	WSTM::WVar<int> v(cur);
 	for(unsigned int i = 0; i < 10; ++i)
 	{
 		const int inc = std::rand() % 10;
-		const int res = BSTM::Atomically(boost::bind(IncrementInt, boost::ref(v), inc, _1));
+		const int res = WSTM::Atomically(boost::bind(IncrementInt, boost::ref(v), inc, _1));
 		BOOST_CHECK_EQUAL(cur, res);
 		BOOST_CHECK_EQUAL(cur + inc, v.GetReadOnly());
 		cur += inc;
@@ -180,8 +176,8 @@ namespace
 	{
 		WTest(int x) : m_i(x) {}
 		int m_i;
-		typedef boost::shared_ptr<const WTest> Ptr;
-		typedef BSTM::WVar<Ptr> Var;
+		typedef std::shared_ptr<const WTest> Ptr;
+		typedef WSTM::WVar<Ptr> Var;
 
 		static Ptr create(int x)
 		{
@@ -190,7 +186,7 @@ namespace
 		}
 	};
 	
-	int IncrementTestClass(WTest::Var& v, const int inc, BSTM::WAtomic& at)
+	int IncrementTestClass(WTest::Var& v, const int inc, WSTM::WAtomic& at)
 	{
 		WTest::Ptr t_p = v.Get(at);
 		v.Set(WTest::create(t_p->m_i + inc), at);
@@ -205,7 +201,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_class_increment)
 	for(unsigned int i = 0; i < 10; ++i)
 	{
 		const int inc = std::rand() % 10;
-		const int res = BSTM::Atomically(boost::bind(IncrementTestClass, boost::ref(v), inc, _1));
+		const int res = WSTM::Atomically(boost::bind(IncrementTestClass, boost::ref(v), inc, _1));
 		BOOST_CHECK_EQUAL(cur, res);
 		BOOST_CHECK_EQUAL(cur + inc, v.GetReadOnly()->m_i);
 		cur += inc;
@@ -214,8 +210,8 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_class_increment)
 
 namespace
 {
-	void ConflictTestAtomic(int& repeat, BSTM::WVar<int>& v1, BSTM::WVar<int>& v2,
-                           boost::barrier& barrier, BSTM::WAtomic& at)
+	void ConflictTestAtomic(int& repeat, WSTM::WVar<int>& v1, WSTM::WVar<int>& v2,
+                           boost::barrier& barrier, WSTM::WAtomic& at)
 	{
 		++repeat;
 		int val1 = v1.Get(at);
@@ -229,23 +225,18 @@ namespace
 		}
 	}
 
-	void ConflictTest(int& repeat, BSTM::WVar<int>& v1, BSTM::WVar<int>& v2,
+	void ConflictTest(int& repeat, WSTM::WVar<int>& v1, WSTM::WVar<int>& v2,
                      boost::barrier& finishBarrier, boost::barrier& conflictBarrier)
 	{
-		BSTM::Atomically(boost::bind(&ConflictTestAtomic,
-                                   boost::ref(repeat),
-                                   boost::ref(v1),
-                                   boost::ref(v2),
-                                   boost::ref(conflictBarrier),
-                                   _1));
+      WSTM::Atomically ([&](WSTM::WAtomic& at){ConflictTestAtomic (repeat, v1, v2, conflictBarrier, at);});
 		finishBarrier.wait();
 	}
 }
 
 BOOST_AUTO_TEST_CASE (StmVarTests_test_conflict)
 {
-	BSTM::WVar<int> v1(1);
-	BSTM::WVar<int> v2(1);
+	WSTM::WVar<int> v1(1);
+	WSTM::WVar<int> v2(1);
 	boost::barrier finishBarrier(3);
 	boost::barrier conflictBarrier(2);
 	
@@ -256,19 +247,9 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_conflict)
 		const int oldTotal = old1 + old2;
 
 		int repeat1 = 0;
-		boost::thread t1(boost::bind(ConflictTest,
-                                   boost::ref(repeat1),
-                                   boost::ref(v1),
-                                   boost::ref(v2),
-                                   boost::ref(finishBarrier),
-                                   boost::ref(conflictBarrier)));
+      std::thread t1 ([&](){ConflictTest (repeat1, v1, v2, finishBarrier, conflictBarrier);});
 		int repeat2 = 0;
-		boost::thread t2(boost::bind(ConflictTest,
-                                   boost::ref(repeat2),
-                                   boost::ref(v2),
-                                   boost::ref(v1),
-                                   boost::ref(finishBarrier),
-                                   boost::ref(conflictBarrier)));
+      std::thread t2 ([&](){ConflictTest (repeat2, v2, v1, finishBarrier, conflictBarrier);});
 		finishBarrier.wait();
 
 		const int n1 = v1.GetReadOnly();
@@ -276,14 +257,19 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_conflict)
 		BOOST_CHECK((n1 == oldTotal) || (n2 == oldTotal));
 		if(n1 == oldTotal)
 		{
-			BOOST_CHECK(repeat1 == 1 && repeat2 == 2);			  
+			BOOST_CHECK_EQUAL(repeat1, 1);
+         BOOST_CHECK_EQUAL (repeat2, 2);			  
 			BOOST_CHECK_EQUAL(oldTotal + old2, n2);
 		}
 		else
 		{
-			BOOST_CHECK(repeat1 == 2 && repeat2 == 1);			  
+			BOOST_CHECK_EQUAL(repeat1, 2);
+         BOOST_CHECK_EQUAL (repeat2, 1);			  
 			BOOST_CHECK_EQUAL(oldTotal + old1, n1);		
 		}
+
+      t1.join ();
+      t2.join ();
 	}
 }
 
@@ -292,7 +278,7 @@ namespace
    struct WTestExc
    {};
 
-   void SetVarValueAndThrow (BSTM::WVar<int>& var, const int value, BSTM::WAtomic& at)
+   void SetVarValueAndThrow (WSTM::WVar<int>& var, const int value, WSTM::WAtomic& at)
    {
       var.Set (value, at);
       throw WTestExc ();
@@ -302,7 +288,7 @@ namespace
 BOOST_AUTO_TEST_CASE (StmVarTests_test_exception_thrown)
 {
    const int INIT_VAL = 746235;
-   BSTM::WVar<int> var (INIT_VAL);
+   WSTM::WVar<int> var (INIT_VAL);
    const int SET_VAL = 932351;
    BOOST_CHECK_THROW ((Atomically (boost::bind (SetVarValueAndThrow,
                                                 boost::ref (var),
@@ -310,27 +296,27 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_exception_thrown)
                                                 _1))),
                       WTestExc);
    BOOST_CHECK_EQUAL (var.GetReadOnly (), INIT_VAL);
-   BOOST_CHECK (!BSTM::InAtomic ());
+   BOOST_CHECK (!WSTM::InAtomic ());
 }
 
 namespace
 {
 	struct WRetryWaitData
 	{
-		typedef boost::shared_ptr<WRetryWaitData> Ptr;
+		typedef std::shared_ptr<WRetryWaitData> Ptr;
 		
 		WRetryWaitData(const std::string& name_, const unsigned int desiredVarVal_):
 			name(name_),
 			retries(0),
 			timeouts(0),
 			gotMaxRetries(false),
-			var_p(new BSTM::WVar<unsigned int>(0)),
+			var_p(new WSTM::WVar<unsigned int>(0)),
 			finishBarrier_p(new boost::barrier(3)),
 			retryBarrier_p(new boost::barrier(2)),
 			desiredVarVal(desiredVarVal_),
-			maxRetries(BSTM::UNLIMITED),
-			maxRetryWait(BSTM::UNLIMITED),
-			retryTimeout(BSTM::UNLIMITED),
+			maxRetries(WSTM::UNLIMITED),
+			maxRetryWait(WSTM::UNLIMITED),
+			retryTimeout(WSTM::UNLIMITED),
 			sleepTime(0),
          m_wasInAtomicAfterTrans (false)
 		{}
@@ -344,9 +330,9 @@ namespace
 		unsigned int retries;
 		unsigned int timeouts;
 		bool gotMaxRetries;
-		boost::shared_ptr<BSTM::WVar<unsigned int> > var_p;
-		boost::shared_ptr<boost::barrier> finishBarrier_p;
-		boost::shared_ptr<boost::barrier> retryBarrier_p;
+		std::shared_ptr<WSTM::WVar<unsigned int> > var_p;
+		std::shared_ptr<boost::barrier> finishBarrier_p;
+		std::shared_ptr<boost::barrier> retryBarrier_p;
 		unsigned int desiredVarVal;
 		unsigned int maxRetries;
 		unsigned int maxRetryWait;
@@ -358,7 +344,7 @@ namespace
       WRetryWaitData& operator= (const WRetryWaitData&) { return *this; }
 	};
 
-	void RetryWaitAtomic(WRetryWaitData::Ptr data_p, BSTM::WAtomic& at)
+	void RetryWaitAtomic(WRetryWaitData::Ptr data_p, WSTM::WAtomic& at)
 	{
 		const unsigned int i = data_p->var_p->Get(at);
 		if(i != data_p->desiredVarVal)
@@ -369,7 +355,7 @@ namespace
 			{
 				boost::this_thread::sleep(boost::posix_time::milliseconds (data_p->sleepTime));
 			}
-			BSTM::Retry(at, bpt::milliseconds (data_p->retryTimeout));
+			WSTM::Retry(at, std::chrono::milliseconds (data_p->retryTimeout));
 		}
 	}
 
@@ -377,23 +363,23 @@ namespace
 	{
 		try
 		{
-			BSTM::Atomically(boost::bind(&RetryWaitAtomic, data_p, _1),
-                          BSTM::WMaxRetries(data_p->maxRetries)
-                          & BSTM::WMaxRetryWait(bpt::milliseconds (data_p->maxRetryWait)));
-         if (BSTM::InAtomic ())
+			WSTM::Atomically(boost::bind(&RetryWaitAtomic, data_p, _1),
+                          WSTM::WMaxRetries(data_p->maxRetries),
+                          WSTM::WMaxRetryWait(std::chrono::milliseconds (data_p->maxRetryWait)));
+         if (WSTM::InAtomic ())
          {
             data_p->m_wasInAtomicAfterTrans = true;
          }
 		}
-		catch(BSTM::WRetryTimeoutException&)
+		catch(WSTM::WRetryTimeoutException&)
 		{
 			++data_p->timeouts;
-         BOOST_CHECK (!BSTM::InAtomic ());
+         BOOST_CHECK (!WSTM::InAtomic ());
 		}
-		catch(BSTM::WMaxRetriesException&)
+		catch(WSTM::WMaxRetriesException&)
 		{
 			data_p->gotMaxRetries = true;
-         BOOST_CHECK (!BSTM::InAtomic ());
+         BOOST_CHECK (!WSTM::InAtomic ());
 		}
 		
 		data_p->finishBarrier_p->wait();
@@ -401,7 +387,7 @@ namespace
 
 	struct WRetryIncData
 	{
-		typedef boost::shared_ptr<WRetryIncData> Ptr;
+		typedef std::shared_ptr<WRetryIncData> Ptr;
 		
 		WRetryIncData(WRetryWaitData::Ptr waitData_p,
                     unsigned int repeats_,
@@ -418,9 +404,9 @@ namespace
 		
 		const std::string name;
 		unsigned int repeats;
-		boost::shared_ptr<BSTM::WVar<unsigned int> > var_p;
-		boost::shared_ptr<boost::barrier> finishBarrier_p;
-		boost::shared_ptr<boost::barrier> retryBarrier_p;
+		std::shared_ptr<WSTM::WVar<unsigned int> > var_p;
+		std::shared_ptr<boost::barrier> finishBarrier_p;
+		std::shared_ptr<boost::barrier> retryBarrier_p;
 		const unsigned int inc;
 		unsigned int sleepTime;
       bool m_wasInAtomicAfterTrans;
@@ -429,7 +415,7 @@ namespace
       WRetryIncData& operator= (const WRetryIncData&) { return *this; }
 	};
 
-	void RetryIncAtomic(WRetryIncData::Ptr data_p, BSTM::WAtomic& at)
+	void RetryIncAtomic(WRetryIncData::Ptr data_p, WSTM::WAtomic& at)
 	{
 		data_p->var_p->Set(data_p->var_p->Get(at) + data_p->inc, at);
 		Wait(data_p->retryBarrier_p);
@@ -443,8 +429,8 @@ namespace
 	{
 		for(unsigned int i = 0; i < data_p->repeats; ++i)
 		{
-			BSTM::Atomically(boost::bind(&RetryIncAtomic, data_p, _1));
-         if (BSTM::InAtomic ())
+			WSTM::Atomically(boost::bind(&RetryIncAtomic, data_p, _1));
+         if (WSTM::InAtomic ())
          {
             data_p->m_wasInAtomicAfterTrans = true;
             break;
@@ -460,15 +446,17 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_retry_before)
 	WRetryWaitData::Ptr waitData_p(new WRetryWaitData("test_retry_before", 10));
 	waitData_p->sleepTime = 30;
 	WRetryIncData::Ptr incData_p(new WRetryIncData(waitData_p, 1, 10));
-	boost::thread(boost::bind(RetryWait, waitData_p));
-	boost::thread(boost::bind(RetryInc, incData_p));
+	std::thread t1(boost::bind(RetryWait, waitData_p));
+	std::thread t2(boost::bind(RetryInc, incData_p));
 	waitData_p->finishBarrier_p->wait();
 	BOOST_CHECK(!waitData_p->gotMaxRetries);
 	BOOST_CHECK_EQUAL(static_cast<unsigned int>(0), waitData_p->timeouts);
 	BOOST_CHECK_EQUAL(static_cast<unsigned int>(1), waitData_p->retries);
 	BOOST_CHECK_EQUAL(static_cast<unsigned int>(10), waitData_p->var_p->GetReadOnly());
    BOOST_CHECK (!waitData_p->m_wasInAtomicAfterTrans);
-   BOOST_CHECK (!incData_p->m_wasInAtomicAfterTrans);   
+   BOOST_CHECK (!incData_p->m_wasInAtomicAfterTrans);
+   t1.join ();
+   t2.join ();
 }
 
 BOOST_AUTO_TEST_CASE (StmVarTests_test_retry_after)
@@ -477,8 +465,8 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_retry_after)
 	WRetryWaitData::Ptr waitData_p(new WRetryWaitData("test_retry_after", 10));
 	WRetryIncData::Ptr incData_p(new WRetryIncData(waitData_p, 1, 10));
 	incData_p->sleepTime = 30;
-	boost::thread(boost::bind(RetryWait, waitData_p));
-	boost::thread(boost::bind(RetryInc, incData_p));
+	std::thread t1(boost::bind(RetryWait, waitData_p));
+	std::thread t2(boost::bind(RetryInc, incData_p));
 	waitData_p->finishBarrier_p->wait();
 	BOOST_CHECK(!waitData_p->gotMaxRetries);
 	BOOST_CHECK_EQUAL(static_cast<unsigned int>(0), waitData_p->timeouts);
@@ -486,53 +474,62 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_retry_after)
 	BOOST_CHECK_EQUAL(static_cast<unsigned int>(10), waitData_p->var_p->GetReadOnly());
    BOOST_CHECK (!waitData_p->m_wasInAtomicAfterTrans);
    BOOST_CHECK (!incData_p->m_wasInAtomicAfterTrans);   
+
+   t1.join ();
+   t2.join ();
 }
 
 namespace
 {
-   void DoRetyTimeout (BSTM::WAtomic& at)
+   void DoRetyTimeout (WSTM::WAtomic& at)
    {
-      BSTM::Retry (at, boost::posix_time::milliseconds (10));
+      WSTM::Retry (at, std::chrono::milliseconds (10));
    }
 }
 
 BOOST_AUTO_TEST_CASE (StmVarTests_test_retryTimeoutSimple)
 {
-   BOOST_CHECK_THROW ((BSTM::Atomically (boost::bind (DoRetyTimeout, _1))),
-                      BSTM::WRetryTimeoutException);
-   BOOST_CHECK (!BSTM::InAtomic ());
+   BOOST_CHECK_THROW ((WSTM::Atomically (boost::bind (DoRetyTimeout, _1))),
+                      WSTM::WRetryTimeoutException);
+   BOOST_CHECK (!WSTM::InAtomic ());
 }
 
 BOOST_AUTO_TEST_CASE (StmVarTests_test_retryTimeout)
 {
-	//test timeout in retry using timeout in BSTM::retry
+	//test timeout in retry using timeout in WSTM::retry
 	WRetryWaitData::Ptr waitData_p(new WRetryWaitData("test_retryTimeout", 20));
 	waitData_p->retryTimeout = 10;
 	waitData_p->retryBarrier_p.reset(new boost::barrier(2));
 	WRetryIncData::Ptr incData_p(new WRetryIncData(waitData_p, 1, 10));
 	incData_p->sleepTime = 30;
-	boost::thread(boost::bind(RetryWait, waitData_p));
-	boost::thread(boost::bind(RetryInc, incData_p));
+	std::thread t1(boost::bind(RetryWait, waitData_p));
+	std::thread t2(boost::bind(RetryInc, incData_p));
 	waitData_p->finishBarrier_p->wait();
 	BOOST_CHECK(!waitData_p->gotMaxRetries);
 	BOOST_CHECK_EQUAL(static_cast<unsigned int>(1), waitData_p->timeouts);
 	BOOST_CHECK_EQUAL(static_cast<unsigned int>(1), waitData_p->retries);
+
+   t1.join ();
+   t2.join ();
 }
 
 BOOST_AUTO_TEST_CASE (StmVarTests_test_retry_max_timeout)
 {
-   //test timeout in retry using maxRetryWait in BSTM::atomically
+   //test timeout in retry using maxRetryWait in WSTM::atomically
 	WRetryWaitData::Ptr waitData_p(new WRetryWaitData("test_retry_max_timeout", 20));
 	waitData_p->maxRetryWait = 10;
 	waitData_p->retryBarrier_p.reset(new boost::barrier(2));
 	WRetryIncData::Ptr incData_p(new WRetryIncData(waitData_p, 1, 10));
 	incData_p->sleepTime = 30;
-	boost::thread(boost::bind(RetryWait, waitData_p));
-	boost::thread(boost::bind(RetryInc, incData_p));
+	std::thread t1(boost::bind(RetryWait, waitData_p));
+	std::thread t2(boost::bind(RetryInc, incData_p));
 	waitData_p->finishBarrier_p->wait();
 	BOOST_CHECK(!waitData_p->gotMaxRetries);
 	BOOST_CHECK_EQUAL(static_cast<unsigned int>(1), waitData_p->timeouts);
 	BOOST_CHECK_EQUAL(static_cast<unsigned int>(1), waitData_p->retries);
+
+   t1.join ();
+   t2.join ();
 }
 
 BOOST_AUTO_TEST_CASE (StmVarTests_test_retry_limit)
@@ -543,19 +540,22 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_retry_limit)
 	waitData_p->NoRetryBarrier();
 	WRetryIncData::Ptr incData_p(new WRetryIncData(waitData_p, 10, 1));
 	incData_p->sleepTime = 10;
-	boost::thread(boost::bind(RetryWait, waitData_p));
-	boost::thread(boost::bind(RetryInc, incData_p));
+	std::thread t1(boost::bind(RetryWait, waitData_p));
+	std::thread t2(boost::bind(RetryInc, incData_p));
 	waitData_p->finishBarrier_p->wait();
 	BOOST_CHECK(waitData_p->gotMaxRetries);
 	BOOST_CHECK_EQUAL(static_cast<unsigned int>(0), waitData_p->timeouts);
 	BOOST_CHECK_EQUAL(static_cast<unsigned int>(5), waitData_p->retries);
+
+   t1.join ();
+   t2.join ();
 }
 
 BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_throw)
 {
    const auto successValue = 428731;
-   auto conflictVar = BSTM::WVar<int>(0);
-   auto successVar = BSTM::WVar<int>(0);
+   auto conflictVar = WSTM::WVar<int>(0);
+   auto successVar = WSTM::WVar<int>(0);
    boost::atomic<int> conflicteeCount (0);
    boost::atomic<int> conflicterCount (0);
    boost::atomic<int> gotExc (0);
@@ -563,7 +563,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_throw)
    boost::barrier bar2 (2);
    
    auto conflicteeAt =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          const auto repeat = conflicteeCount.fetch_add (1);
          if (repeat == 0)
@@ -578,20 +578,20 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_throw)
          }
          //do nothing on the second repeat (shouldn't get a second repeat)
       };
-   auto conflictee = boost::thread ([&]()
-                                    {
-                                       try
-                                       {
-                                          BSTM::Atomically (conflicteeAt, BSTM::WMaxConflicts (1) & BSTM::WConRes (BSTM::WConflictResolution::THROW));
-                                       }
-                                       catch(BSTM::WMaxConflictsException&)
-                                       {
-                                          gotExc.store (1);
-                                       }
-                                    });
+   auto conflictee = std::thread ([&]()
+                                  {
+                                     try
+                                     {
+                                        WSTM::Atomically (conflicteeAt, WSTM::WMaxConflicts (1, WSTM::WConflictResolution::THROW));
+                                     }
+                                     catch(WSTM::WMaxConflictsException&)
+                                     {
+                                        gotExc.store (1);
+                                     }
+                                  });
    
    auto conflicterAt =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          const auto repeat = conflicterCount.fetch_add (1);
          if (repeat == 0)
@@ -605,10 +605,10 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_throw)
          }
          //do nothing on the second repeat
       };
-   auto conflicter = boost::thread ([&]()
-                                    {
-                                       BSTM::Atomically (conflicterAt);
-                                    });
+   auto conflicter = std::thread ([&]()
+                                  {
+                                     WSTM::Atomically (conflicterAt);
+                                  });
    
    conflictee.join ();
    conflicter.join ();
@@ -622,15 +622,15 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_throw)
 BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_lock)
 {
    const auto successValue = 428731;
-   auto conflictVar = BSTM::WVar<int>(0);
-   auto successVar = BSTM::WVar<int>(0);
+   auto conflictVar = WSTM::WVar<int>(0);
+   auto successVar = WSTM::WVar<int>(0);
    boost::atomic<int> conflicteeCount (0);
    boost::atomic<int> conflicterCount (0);
    boost::barrier bar1 (2);
    boost::barrier bar2 (2);
    
    auto conflicteeAt =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          const auto repeat = conflicteeCount.fetch_add (1);
          if (repeat < 2)
@@ -651,10 +651,10 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_lock)
          }
          //do nothing on the third repeat (shouldn't get a thrid repeat)
       };
-   auto conflictee = boost::thread ([&](){BSTM::Atomically (conflicteeAt, BSTM::WMaxConflicts (1) & BSTM::WConRes (BSTM::WConflictResolution::RUN_LOCKED));});
+   auto conflictee = std::thread ([&](){WSTM::Atomically (conflicteeAt, WSTM::WMaxConflicts (1, WSTM::WConflictResolution::RUN_LOCKED));});
 
    auto conflicterAt =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          const auto repeat = conflicterCount.fetch_add (1);
          if (repeat < 2)
@@ -671,20 +671,20 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_lock)
                //signal the conflictee thread that we're committing before we start our commit (we
                //should get blocked on the commit lock until the conflictee commits this time so we
                //can't signal after our commit is done) 
-               at.BeforeCommit ([&b2](BSTM::WAtomic& at){UNUSED_VAR (at); b2.wait ();});
+               at.BeforeCommit ([&b2](WSTM::WAtomic& at){UNUSED_VAR (at); b2.wait ();});
             }
             //wait for the conflictee thread to signal that it has read conflictVar before we commit
             bar1.wait ();
          }
          //do nothing on the third repeat
       };
-   auto conflicter = boost::thread ([&]()
-                                    {
-                                       for (auto i = 0; i < 2; ++i)
-                                       {
-                                          BSTM::Atomically (conflicterAt);
-                                       }
-                                    });
+   auto conflicter = std::thread ([&]()
+                                  {
+                                     for (auto i = 0; i < 2; ++i)
+                                     {
+                                        WSTM::Atomically (conflicterAt);
+                                     }
+                                  });
 
    conflictee.join ();
    conflicter.join ();
@@ -700,16 +700,16 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_lock_with_sub_trans)
    //were running locked, this test makes sure that the problem has not come back
    
    const auto successValue = 428731;
-   auto conflictVar = BSTM::WVar<int>(0);
-   auto successVar = BSTM::WVar<int>(0);
-   auto extraVar = BSTM::WVar<int>(0);
+   auto conflictVar = WSTM::WVar<int>(0);
+   auto successVar = WSTM::WVar<int>(0);
+   auto extraVar = WSTM::WVar<int>(0);
    boost::atomic<int> conflicteeCount (0);
    boost::atomic<int> conflicterCount (0);
    boost::barrier bar1 (2);
    boost::barrier bar2 (2);
    
    auto conflicteeAt =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          const auto repeat = conflicteeCount.fetch_add (1);
          if (repeat < 2)
@@ -737,10 +737,10 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_lock_with_sub_trans)
          }
          //do nothing on the third repeat (shouldn't get a thrid repeat)
       };
-   auto conflictee = boost::thread ([&](){BSTM::Atomically (conflicteeAt, BSTM::WMaxConflicts (1) & BSTM::WConRes (BSTM::WConflictResolution::RUN_LOCKED));});
+   auto conflictee = std::thread ([&](){WSTM::Atomically (conflicteeAt, WSTM::WMaxConflicts (1, WSTM::WConflictResolution::RUN_LOCKED));});
 
    auto conflicterAt =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          const auto repeat = conflicterCount.fetch_add (1);
          if (repeat < 2)
@@ -757,20 +757,20 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_lock_with_sub_trans)
                //signal the conflictee thread that we're committing before we start our commit (we
                //should get blocked on the commit lock until the conflictee commits this time so we
                //can't signal after our commit is done) 
-               at.BeforeCommit ([&b2](BSTM::WAtomic& at){UNUSED_VAR (at); b2.wait ();});
+               at.BeforeCommit ([&b2](WSTM::WAtomic& at){UNUSED_VAR (at); b2.wait ();});
             }
             //wait for the conflictee thread to signal that it has read conflictVar before we commit
             bar1.wait ();
          }
          //do nothing on the third repeat
       };
-   auto conflicter = boost::thread ([&]()
-                                    {
-                                       for (auto i = 0; i < 2; ++i)
-                                       {
-                                          BSTM::Atomically (conflicterAt);
-                                       }
-                                    });
+   auto conflicter = std::thread ([&]()
+                                  {
+                                     for (auto i = 0; i < 2; ++i)
+                                     {
+                                        WSTM::Atomically (conflicterAt);
+                                     }
+                                  });
 
    conflictee.join ();
    conflicter.join ();
@@ -785,7 +785,7 @@ namespace
 	struct WTestException
 	{};
 
-	void DoThrowTest(BSTM::WVar<int>& var, BSTM::WAtomic& at)
+	void DoThrowTest(WSTM::WVar<int>& var, WSTM::WAtomic& at)
 	{
 		var.Set(var.Get(at) + 1, at);
 		throw WTestException();
@@ -795,11 +795,11 @@ namespace
 BOOST_AUTO_TEST_CASE (StmVarTests_test_op_throws)
 {
 	const int val = 10;
-	BSTM::WVar<int> var(val);
+	WSTM::WVar<int> var(val);
 	bool gotExc = false;
 	try
 	{
-		BSTM::Atomically(boost::bind(DoThrowTest, boost::ref(var), _1));
+		WSTM::Atomically(boost::bind(DoThrowTest, boost::ref(var), _1));
 	}
 	catch(WTestException&)
 	{
@@ -814,19 +814,19 @@ namespace
 	const int nestedVal = 101;
 	const int toplevelVal = 200;
 
-	void Nested(BSTM::WVar<int>& var, bool& sawGoodValue, BSTM::WAtomic& at)
+	void Nested(WSTM::WVar<int>& var, bool& sawGoodValue, WSTM::WAtomic& at)
 	{
 		sawGoodValue = (toplevelVal == var.Get(at));
 		var.Set(nestedVal, at);
 		throw WTestException();
 	}
 
-	bool Toplevel(BSTM::WVar<int>& var, bool& sawGoodValue, BSTM::WAtomic& at)
+	bool Toplevel(WSTM::WVar<int>& var, bool& sawGoodValue, WSTM::WAtomic& at)
 	{
 		var.Set(toplevelVal, at);
 		try
 		{
-			BSTM::Atomically(boost::bind(Nested, boost::ref(var), boost::ref(sawGoodValue), _1));
+			WSTM::Atomically(boost::bind(Nested, boost::ref(var), boost::ref(sawGoodValue), _1));
 		}
 		catch(WTestException&)
 		{
@@ -841,9 +841,9 @@ namespace
 BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_transaction_rollback)
 {
 	const int init_val = 1;
-	BSTM::WVar<int> var(init_val);
+	WSTM::WVar<int> var(init_val);
 	bool nestedSawGoodValue;
-	bool gotExc = BSTM::Atomically(boost::bind(Toplevel,
+	bool gotExc = WSTM::Atomically(boost::bind(Toplevel,
                                               boost::ref(var),
                                               boost::ref(nestedSawGoodValue),
                                               _1));
@@ -854,9 +854,9 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_transaction_rollback)
 
 namespace
 {
-	void TestDisappearingVarAtomic(BSTM::WAtomic& at)
+	void TestDisappearingVarAtomic(WSTM::WAtomic& at)
 	{
-		boost::shared_ptr<BSTM::WVar<int> > var_p(new BSTM::WVar<int>(0));
+		std::shared_ptr<WSTM::WVar<int> > var_p(new WSTM::WVar<int>(0));
 		var_p->Get(at);
 		var_p.reset();
 	}
@@ -864,7 +864,7 @@ namespace
 
 BOOST_AUTO_TEST_CASE (StmVarTests_test_disappearing_var)
 {
-	BSTM::Atomically(boost::bind(TestDisappearingVarAtomic, _1));
+	WSTM::Atomically(boost::bind(TestDisappearingVarAtomic, _1));
 	//if we crash before getting here it means that STM is not dealing
 	//with variables being deleted during transactions
    BOOST_CHECK (true);
@@ -874,7 +874,7 @@ namespace TestRefReturn
 {
 	int refVal = 3598798;
 
-	int& GetRefVal(BSTM::WAtomic& /*at*/)
+	int& GetRefVal(WSTM::WAtomic& /*at*/)
 	{
 		return refVal;
 	}
@@ -882,22 +882,22 @@ namespace TestRefReturn
 
 BOOST_AUTO_TEST_CASE (StmVarTests_test_ref_return)
 {
-	//Make sure that BSTM::atomically deals with functions that return
+	//Make sure that WSTM::atomically deals with functions that return
 	//references properly.
-	int& result = BSTM::Atomically(boost::bind(TestRefReturn::GetRefVal, _1));
+	int& result = WSTM::Atomically(boost::bind(TestRefReturn::GetRefVal, _1));
 	BOOST_CHECK_EQUAL(&TestRefReturn::refVal, &result);
 }
 
 namespace TestNestedGet
 {
 	const int gotVarVal = 395879;
-	BSTM::WVar<int> gotVar(gotVarVal);
+	WSTM::WVar<int> gotVar(gotVarVal);
 
 	const int setVarInitVal = 45987;
 	const int setVarSetVal = 89475;	
-	BSTM::WVar<int> setVar(setVarInitVal);
+	WSTM::WVar<int> setVar(setVarInitVal);
 	
-	void child(BSTM::WAtomic& at)
+	void child(WSTM::WAtomic& at)
 	{
 		BOOST_CHECK_EQUAL(gotVarVal, gotVar.Get(at));
 		BOOST_CHECK_EQUAL(setVarSetVal, setVar.Get(at));
@@ -908,12 +908,12 @@ namespace TestNestedGet
 		BOOST_CHECK_EQUAL(setVarSetVal, setVar.Get(at));
 	}
 
-	void parent(BSTM::WAtomic& at)
+	void parent(WSTM::WAtomic& at)
 	{
 		BOOST_CHECK_EQUAL(gotVarVal, gotVar.Get(at));
 		BOOST_CHECK_EQUAL(setVarInitVal, setVar.Get(at));		
 		setVar.Set(setVarSetVal, at);
-		BSTM::Atomically(boost::bind(TestNestedGet::child, _1));
+		WSTM::Atomically(boost::bind(TestNestedGet::child, _1));
 		BOOST_CHECK_EQUAL(gotVarVal, gotVar.Get(at));
 		BOOST_CHECK_EQUAL(setVarSetVal, setVar.Get(at));		
 	}
@@ -923,19 +923,19 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_get)
 {
 	//Make sure that getting a variable that has been gotten or set in
 	//the parent transaction works
-	BSTM::Atomically(boost::bind(TestNestedGet::parent, _1));
+	WSTM::Atomically(boost::bind(TestNestedGet::parent, _1));
 }
 
 namespace TestNestedSet
 {
 	const int gotVarVal = 134;
-	BSTM::WVar<int> gotVar(gotVarVal);
+	WSTM::WVar<int> gotVar(gotVarVal);
 
 	const int setVarInitVal = 974;
 	const int setVarSetVal = 98346;	
-	BSTM::WVar<int> setVar(setVarInitVal);
+	WSTM::WVar<int> setVar(setVarInitVal);
 	
-	void child(BSTM::WAtomic& at)
+	void child(WSTM::WAtomic& at)
 	{
 		BOOST_CHECK_EQUAL(gotVarVal, gotVar.Get(at));
 		BOOST_CHECK_EQUAL(setVarInitVal, setVar.Get(at));		
@@ -947,11 +947,11 @@ namespace TestNestedSet
 		BOOST_CHECK_EQUAL(setVarSetVal, setVar.Get(at));		
 	}
 
-	void parent(BSTM::WAtomic& at)
+	void parent(WSTM::WAtomic& at)
 	{
 		BOOST_CHECK_EQUAL(gotVarVal, gotVar.Get(at));
 		BOOST_CHECK_EQUAL(setVarInitVal, setVar.Get(at));		
-		BSTM::Atomically(boost::bind(TestNestedSet::child, _1));
+		WSTM::Atomically(boost::bind(TestNestedSet::child, _1));
 		BOOST_CHECK_EQUAL(gotVarVal, gotVar.Get(at));
 		BOOST_CHECK_EQUAL(setVarSetVal, setVar.Get(at));		
 	}
@@ -961,7 +961,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_set)
 {
 	//Make sure that setting a variable that has been gotten or set in
 	//the parent transaction works
-	BSTM::Atomically(boost::bind(TestNestedSet::parent, _1));
+	WSTM::Atomically(boost::bind(TestNestedSet::parent, _1));
 	BOOST_CHECK_EQUAL(TestNestedSet::gotVarVal,
                      TestNestedSet::gotVar.GetReadOnly());
 	BOOST_CHECK_EQUAL(TestNestedSet::setVarSetVal,
@@ -970,7 +970,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_set)
 
 namespace
 {
-	std::pair<int, int> TestInternalConstReturnAtomic(BSTM::WAtomic&)
+	std::pair<int, int> TestInternalConstReturnAtomic(WSTM::WAtomic&)
 	{
 		return std::pair<int, int>(1, 2);
 	}
@@ -980,7 +980,7 @@ namespace
 BOOST_AUTO_TEST_CASE (StmVarTests_test_internal_const_return)
 {
 	std::pair<int, int> result =
-		BSTM::Atomically(boost::bind(TestInternalConstReturnAtomic, _1));
+		WSTM::Atomically(boost::bind(TestInternalConstReturnAtomic, _1));
 	BOOST_CHECK_EQUAL(1, result.first);
 	BOOST_CHECK_EQUAL(2, result.second);
 }
@@ -993,12 +993,12 @@ namespace
 	{
 		void operator()() const
 		{
-			BOOST_CHECK(!BSTM::InAtomic());
+			BOOST_CHECK(!WSTM::InAtomic());
 			++commitHookNumCalls;
 		}
 	};
 
-	void TestCommitHookAtomic(BSTM::WAtomic& at)
+	void TestCommitHookAtomic(WSTM::WAtomic& at)
 	{
 		at.After(WIncrementNumCalls());
 	}
@@ -1007,25 +1007,25 @@ namespace
 BOOST_AUTO_TEST_CASE (StmVarTests_test_commit_hook)
 {
 	commitHookNumCalls = 0;
-	BSTM::Atomically(boost::bind(TestCommitHookAtomic, _1));
+	WSTM::Atomically(boost::bind(TestCommitHookAtomic, _1));
 	BOOST_CHECK_EQUAL(1, commitHookNumCalls);
 }
 
 namespace
 {
-	void TestCommitHookNestedNoHookAtomic(BSTM::WAtomic& /*at*/)
+	void TestCommitHookNestedNoHookAtomic(WSTM::WAtomic& /*at*/)
 	{}
 	
-	void TestCommitHookNestedAtomic(BSTM::WAtomic& at, bool topHook, bool childHook)
+	void TestCommitHookNestedAtomic(WSTM::WAtomic& at, bool topHook, bool childHook)
 	{
 		if(childHook)
 		{
-			BSTM::Atomically(boost::bind(TestCommitHookAtomic, _1));
+			WSTM::Atomically(boost::bind(TestCommitHookAtomic, _1));
 			BOOST_CHECK_EQUAL(0, commitHookNumCalls);
 		}
 		else
 		{
-			BSTM::Atomically(boost::bind(TestCommitHookNestedNoHookAtomic, _1));
+			WSTM::Atomically(boost::bind(TestCommitHookNestedNoHookAtomic, _1));
 		}
 		if(topHook)
 		{
@@ -1038,32 +1038,32 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_commit_hook_nested)
 {
 	//test with no hooks.
 	commitHookNumCalls = 0;
-	BSTM::Atomically(boost::bind(TestCommitHookNestedAtomic, _1, false, false));
+	WSTM::Atomically(boost::bind(TestCommitHookNestedAtomic, _1, false, false));
 	BOOST_CHECK_EQUAL(0, commitHookNumCalls);
 
 	//test with hook at top level
 	commitHookNumCalls = 0;
-	BSTM::Atomically(boost::bind(TestCommitHookNestedAtomic, _1, true, false));
+	WSTM::Atomically(boost::bind(TestCommitHookNestedAtomic, _1, true, false));
 	BOOST_CHECK_EQUAL(1, commitHookNumCalls);
 
 	//test with hook coming from child transaction.
 	commitHookNumCalls = 0;
-	BSTM::Atomically(boost::bind(TestCommitHookNestedAtomic, _1, false, true));
+	WSTM::Atomically(boost::bind(TestCommitHookNestedAtomic, _1, false, true));
 	BOOST_CHECK_EQUAL(1, commitHookNumCalls);
 
 	//test with hook coming from top-level and child.
 	commitHookNumCalls = 0;
-	BSTM::Atomically(boost::bind(TestCommitHookNestedAtomic, _1, true, true));
+	WSTM::Atomically(boost::bind(TestCommitHookNestedAtomic, _1, true, true));
 	BOOST_CHECK_EQUAL(2, commitHookNumCalls);
 }
 
 namespace CommitHookConflict
 {
-	BSTM::WVar<int> var(0);
+	WSTM::WVar<int> var(0);
 	boost::barrier conflictBarrier(2);
 	int conflicterCount = 0;
 	
-	void Conflicter(BSTM::WAtomic& at)
+	void Conflicter(WSTM::WAtomic& at)
 	{
 		conflictBarrier.wait();
 		var.Set(var.Get(at) + 1, at);
@@ -1073,7 +1073,7 @@ namespace CommitHookConflict
 	{
 		while(conflicterCount > 0)
 		{
-			BSTM::Atomically(boost::bind(Conflicter, _1));
+			WSTM::Atomically(boost::bind(Conflicter, _1));
 			conflictBarrier.wait();
 			--conflicterCount;
 		}
@@ -1084,14 +1084,14 @@ namespace CommitHookConflict
 		conflictBarrier.wait();
 	}
 
-	void Conflictee(BSTM::WAtomic& at, bool topHook, bool childHook)
+	void Conflictee(WSTM::WAtomic& at, bool topHook, bool childHook)
 	{
 		var.Get(at);
 		conflictBarrier.wait();
 						
 		if(childHook)
 		{
-			BSTM::Atomically(boost::bind(TestCommitHookAtomic, _1));
+			WSTM::Atomically(boost::bind(TestCommitHookAtomic, _1));
 		}
 
 		if(topHook)
@@ -1107,24 +1107,24 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_commit_hook_conflict)
 	//test with no commit hooks
 	commitHookNumCalls = 0;
 	CommitHookConflict::conflicterCount = 1;
-	boost::thread t1(boost::bind(CommitHookConflict::ConflicterThread));
-	BSTM::Atomically(boost::bind(CommitHookConflict::Conflictee, _1, false, false));
+	std::thread t1(boost::bind(CommitHookConflict::ConflicterThread));
+	WSTM::Atomically(boost::bind(CommitHookConflict::Conflictee, _1, false, false));
 	t1.join();
 	BOOST_CHECK_EQUAL(0, commitHookNumCalls);
 					
 	//test with one top-level commit hook
 	commitHookNumCalls = 0;
 	CommitHookConflict::conflicterCount = 2;
-	boost::thread t2(boost::bind(CommitHookConflict::ConflicterThread));
-	BSTM::Atomically(boost::bind(CommitHookConflict::Conflictee, _1, true, false));
+	std::thread t2(boost::bind(CommitHookConflict::ConflicterThread));
+	WSTM::Atomically(boost::bind(CommitHookConflict::Conflictee, _1, true, false));
 	t2.join();
 	BOOST_CHECK_EQUAL(1, commitHookNumCalls);
 
 	//test with a commit hook coming from the child transaction
 	commitHookNumCalls = 0;
 	CommitHookConflict::conflicterCount = 3;
-	boost::thread t3(boost::bind(CommitHookConflict::ConflicterThread));
-	BSTM::Atomically(boost::bind(CommitHookConflict::Conflictee, _1, false, true));
+	std::thread t3(boost::bind(CommitHookConflict::ConflicterThread));
+	WSTM::Atomically(boost::bind(CommitHookConflict::Conflictee, _1, false, true));
 	t3.join();
 	BOOST_CHECK_EQUAL(1, commitHookNumCalls);
 
@@ -1132,18 +1132,17 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_commit_hook_conflict)
 	//level. 
 	commitHookNumCalls = 0;
 	CommitHookConflict::conflicterCount = 4;
-	boost::thread t4(boost::bind(CommitHookConflict::ConflicterThread));
-	BSTM::Atomically(boost::bind(CommitHookConflict::Conflictee, _1, true, true));
+	std::thread t4(boost::bind(CommitHookConflict::ConflicterThread));
+	WSTM::Atomically(boost::bind(CommitHookConflict::Conflictee, _1, true, true));
 	t4.join();
 	BOOST_CHECK_EQUAL(2, commitHookNumCalls);
 
 	//test with the commit hook coming from the transaction running locked.
 	commitHookNumCalls = 0;
 	CommitHookConflict::conflicterCount = 1;
-	boost::thread t5(boost::bind(CommitHookConflict::ConflicterThread));
-	BSTM::Atomically(boost::bind(CommitHookConflict::Conflictee, _1, true, true),
-                    BSTM::WMaxConflicts(1)
-                    & BSTM::WConRes(BSTM::WConflictResolution::RUN_LOCKED));
+	std::thread t5(boost::bind(CommitHookConflict::ConflicterThread));
+	WSTM::Atomically(boost::bind(CommitHookConflict::Conflictee, _1, true, true),
+                    WSTM::WMaxConflicts(1, WSTM::WConflictResolution::RUN_LOCKED));
 	t5.join();
 	BOOST_CHECK_EQUAL(2, commitHookNumCalls);
 }
@@ -1156,17 +1155,17 @@ namespace
 						
 		WCommitHookAtomic() : ran(false) {}
 
-		void operator()(BSTM::WAtomic& at)
+		void operator()(WSTM::WAtomic& at)
 		{
 			at.After(boost::bind(&WCommitHookAtomic::PostCommit, this));
 		}
 						
 		void PostCommit()
 		{
-			BSTM::Atomically(boost::bind(&WCommitHookAtomic::RunAtomic, this, _1));
+			WSTM::Atomically(boost::bind(&WCommitHookAtomic::RunAtomic, this, _1));
 		}
 
-		void RunAtomic(BSTM::WAtomic& /*at*/)
+		void RunAtomic(WSTM::WAtomic& /*at*/)
 		{
 			ran = true;
 		}
@@ -1178,7 +1177,7 @@ namespace
 BOOST_AUTO_TEST_CASE (StmVarTests_test_commit_hook_uses_atomic)
 {
 	WCommitHookAtomic hook;
-	BOOST_CHECK_NO_THROW(BSTM::Atomically(boost::bind(boost::ref(hook), _1)));
+	BOOST_CHECK_NO_THROW(WSTM::Atomically(boost::bind(boost::ref(hook), _1)));
 	BOOST_CHECK(hook.ran);
 }
 				
@@ -1190,32 +1189,32 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_transaction_retry)
 		bool timedout;
 		bool m_firstTime;
 						
-		void Run(barrier& bar, BSTM::WVar<bool>& var)
+		void Run(barrier& bar, WSTM::WVar<bool>& var)
 		{
 			try
 			{
-				BSTM::Atomically(boost::bind(&WRetryThread::RunAtomic,
+				WSTM::Atomically(boost::bind(&WRetryThread::RunAtomic,
                                          this,
                                          boost::ref(bar),
                                          boost::ref(var),
                                          _1));
 			}
-			catch(BSTM::WRetryTimeoutException&)
+			catch(WSTM::WRetryTimeoutException&)
 			{
 				timedout = true;
 			}
 		}
 
-		void RunAtomic(barrier& bar, BSTM::WVar<bool>& var, BSTM::WAtomic& /*at*/)
+		void RunAtomic(barrier& bar, WSTM::WVar<bool>& var, WSTM::WAtomic& /*at*/)
 		{
-			BSTM::Atomically(boost::bind(&WRetryThread::RunAtomicNested,
+			WSTM::Atomically(boost::bind(&WRetryThread::RunAtomicNested,
                                       this,
                                       boost::ref(bar),
                                       boost::ref(var),
                                       _1));
 		}
 
-		void RunAtomicNested(barrier& bar, BSTM::WVar<bool>& var, BSTM::WAtomic& at)
+		void RunAtomicNested(barrier& bar, WSTM::WVar<bool>& var, WSTM::WAtomic& at)
 		{
 			const bool val = var.Get(at);
 			if(m_firstTime)
@@ -1226,7 +1225,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_transaction_retry)
 			}
 			if(!val)
 			{
-				BSTM::Retry(at, bpt::milliseconds (1000));
+				WSTM::Retry(at, std::chrono::milliseconds (1000));
 			}
 		}
 						
@@ -1235,8 +1234,8 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_transaction_retry)
 	//test var update between get and retry
 	WRetryThread ret;
 	barrier bar(2);
-	BSTM::WVar<bool> var(false);
-	thread thr(boost::bind(&WRetryThread::Run, boost::ref(ret), boost::ref(bar), boost::ref(var)));
+	WSTM::WVar<bool> var(false);
+   std::thread thr(boost::bind(&WRetryThread::Run, boost::ref(ret), boost::ref(bar), boost::ref(var)));
 	bar.wait();
    var.Set (true);
 	bar.wait();
@@ -1244,13 +1243,13 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_transaction_retry)
 	BOOST_CHECK(!ret.timedout);
 
 	//test var update after get and retry
-	BSTM::Atomically(boost::bind(&BSTM::WVar<bool>::Set, boost::ref(var), false, _1));
+	WSTM::Atomically(boost::bind(&WSTM::WVar<bool>::Set, boost::ref(var), false, _1));
 	ret.m_firstTime = true;
-	thread thr2(boost::bind(&WRetryThread::Run, boost::ref(ret), boost::ref(bar), boost::ref(var)));
+   std::thread thr2(boost::bind(&WRetryThread::Run, boost::ref(ret), boost::ref(bar), boost::ref(var)));
 	bar.wait();
 	bar.wait();
    boost::this_thread::sleep(boost::posix_time::milliseconds (50));
-	BSTM::Atomically(boost::bind(&BSTM::WVar<bool>::Set, boost::ref(var), true, _1));
+	WSTM::Atomically(boost::bind(&WSTM::WVar<bool>::Set, boost::ref(var), true, _1));
 	thr2.join();
 	BOOST_CHECK(!ret.timedout);
 }
@@ -1270,23 +1269,23 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_transaction_parent_retry)
 		bool timedout;
 		bool m_firstTime;
 						
-		void Run(barrier& bar, BSTM::WVar<bool>& var)
+		void Run(barrier& bar, WSTM::WVar<bool>& var)
 		{
 			try
 			{
-				BSTM::Atomically(boost::bind(&WRetryThread::RunAtomic,
+				WSTM::Atomically(boost::bind(&WRetryThread::RunAtomic,
                                          this,
                                          boost::ref(bar),
                                          boost::ref(var),
                                          _1));
 			}
-			catch(BSTM::WRetryTimeoutException&)
+			catch(WSTM::WRetryTimeoutException&)
 			{
 				timedout = true;
 			}
 		}
 
-		void RunAtomic(barrier& bar, BSTM::WVar<bool>& var, BSTM::WAtomic& at)
+		void RunAtomic(barrier& bar, WSTM::WVar<bool>& var, WSTM::WAtomic& at)
 		{
 			const bool val = var.Get(at);
 			if(m_firstTime)
@@ -1297,19 +1296,19 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_transaction_parent_retry)
 			}
 			if(!val)
 			{
-				BSTM::Retry(at, bpt::milliseconds (100));
+				WSTM::Retry(at, std::chrono::milliseconds (100));
 			}
 		}
 	};
 
 	struct SetVar
 	{
-		void Run(BSTM::WVar<bool>& var, BSTM::WAtomic& /*at*/)
+		void Run(WSTM::WVar<bool>& var, WSTM::WAtomic& /*at*/)
 		{
-			BSTM::Atomically(boost::bind(&SetVar::RunNested, this, boost::ref(var), _1));
+			WSTM::Atomically(boost::bind(&SetVar::RunNested, this, boost::ref(var), _1));
 		}
 						
-		void RunNested(BSTM::WVar<bool>& var, BSTM::WAtomic& at)
+		void RunNested(WSTM::WVar<bool>& var, WSTM::WAtomic& at)
 		{
 			var.Set(true, at);
 		}
@@ -1318,24 +1317,24 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_transaction_parent_retry)
 	//test var update between get and retry
 	WRetryThread ret;
 	barrier bar(2);
-	BSTM::WVar<bool> var(false);
-	thread thr(boost::bind(&WRetryThread::Run, boost::ref(ret), boost::ref(bar), boost::ref(var)));
+	WSTM::WVar<bool> var(false);
+   std::thread thr(boost::bind(&WRetryThread::Run, boost::ref(ret), boost::ref(bar), boost::ref(var)));
 	bar.wait();
    SetVar sv1;
-	BSTM::Atomically(boost::bind(&SetVar::Run, boost::ref (sv1), boost::ref(var), _1));
+	WSTM::Atomically(boost::bind(&SetVar::Run, boost::ref (sv1), boost::ref(var), _1));
 	bar.wait();
 	thr.join();
 	BOOST_CHECK(!ret.timedout);
 
 	//test var update after get and retry
-	BSTM::Atomically(boost::bind(&BSTM::WVar<bool>::Set, boost::ref(var), false, _1));
+	WSTM::Atomically(boost::bind(&WSTM::WVar<bool>::Set, boost::ref(var), false, _1));
 	ret.m_firstTime = true;
-	thread thr2(boost::bind(&WRetryThread::Run, boost::ref(ret), boost::ref(bar), boost::ref(var)));
+   std::thread thr2(boost::bind(&WRetryThread::Run, boost::ref(ret), boost::ref(bar), boost::ref(var)));
 	bar.wait();
 	bar.wait();
    boost::this_thread::sleep(boost::posix_time::milliseconds (50));
    SetVar sv2;
-	BSTM::Atomically(boost::bind(&SetVar::Run, boost::ref (sv2), boost::ref(var), _1));
+	WSTM::Atomically(boost::bind(&SetVar::Run, boost::ref (sv2), boost::ref(var), _1));
 	thr2.join();
 	BOOST_CHECK(!ret.timedout);
 }
@@ -1345,29 +1344,29 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_inconsistent)
 	static const int val1 = 758519;
 	struct GetValueVoid
 	{
-		static void Run(BSTM::WVar<int>& v, BSTM::WInconsistent& ins)
+		static void Run(WSTM::WVar<int>& v, WSTM::WInconsistent& ins)
 		{
 			BOOST_CHECK_NO_THROW(v.GetInconsistent(ins));
 			BOOST_CHECK_EQUAL(val1, v.GetInconsistent(ins));
 		}
 	};
-   BSTM::WVar<int> v1(val1);
-	BOOST_CHECK_NO_THROW(BSTM::Inconsistently(boost::bind(GetValueVoid::Run, boost::ref(v1), _1)));
+   WSTM::WVar<int> v1(val1);
+	BOOST_CHECK_NO_THROW(WSTM::Inconsistently(boost::bind(GetValueVoid::Run, boost::ref(v1), _1)));
 
 	static const int val2 = 894935;
 	struct GetValue
 	{
-		static int Run(BSTM::WVar<int>& v, BSTM::WInconsistent& ins)
+		static int Run(WSTM::WVar<int>& v, WSTM::WInconsistent& ins)
 		{
 			BOOST_CHECK_NO_THROW(v.GetInconsistent(ins));
 			BOOST_CHECK_EQUAL(val2, v.GetInconsistent(ins));
 			return val2 + 1;
 		}
 	};
-   BSTM::WVar<int> v2(val2);
+   WSTM::WVar<int> v2(val2);
 	int res = 0;
 	BOOST_CHECK_NO_THROW(
-		res = BSTM::Inconsistently(boost::bind(GetValue::Run, boost::ref(v2), _1)));
+		res = WSTM::Inconsistently(boost::bind(GetValue::Run, boost::ref(v2), _1)));
 	BOOST_CHECK_EQUAL(val2 + 1, res);
 }
 
@@ -1375,7 +1374,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_inconsistentInAtomic)
 {
 	struct RunInconsistent
 	{
-		static void Run(BSTM::WInconsistent&)
+		static void Run(WSTM::WInconsistent&)
 		{
 			BOOST_FAIL("Inconsistent within atomic");
 		}
@@ -1383,14 +1382,14 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_inconsistentInAtomic)
 
 	struct RunAtomic
 	{
-		static void Run(BSTM::WAtomic& /*at*/)
+		static void Run(WSTM::WAtomic& /*at*/)
 		{
-         BSTM::Inconsistently (boost::bind (RunInconsistent::Run, _1));
+         WSTM::Inconsistently (boost::bind (RunInconsistent::Run, _1));
 		}
 	};
 
-	BOOST_CHECK_THROW(BSTM::Atomically(boost::bind(RunAtomic::Run, _1)),
-                     BSTM::WInAtomicError);
+	BOOST_CHECK_THROW(WSTM::Atomically(boost::bind(RunAtomic::Run, _1)),
+                     WSTM::WInAtomicError);
 }
 
 BOOST_AUTO_TEST_CASE (StmVarTests_test_inconsistentConflict)
@@ -1399,8 +1398,8 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_inconsistentConflict)
 	{
 		static int Run(boost::barrier& b,
                      int& numRuns,
-                     BSTM::WVar<int>& v,
-                     BSTM::WInconsistent& ins)
+                     WSTM::WVar<int>& v,
+                     WSTM::WInconsistent& ins)
 		{
 			++numRuns;
 			const int val = v.GetInconsistent(ins);
@@ -1413,15 +1412,15 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_inconsistentConflict)
 	struct RunAtomic
 	{
 		static void Run(boost::barrier& b,
-                      BSTM::WVar<int>& v,
-                      BSTM::WAtomic& at)
+                      WSTM::WVar<int>& v,
+                      WSTM::WAtomic& at)
 		{
 			b.wait();
 			v.Set(v.Get(at) + 1, at);
 			at.After(boost::bind(&boost::barrier::wait, boost::ref(b)));
 		}
 
-		static void Start(boost::barrier& b, BSTM::WVar<int>& v)
+		static void Start(boost::barrier& b, WSTM::WVar<int>& v)
 		{
 			Atomically(boost::bind(Run, boost::ref(b), boost::ref(v), _1));
 		}
@@ -1429,12 +1428,12 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_inconsistentConflict)
 	};
 
 	const int val = 75102;
-   BSTM::WVar<int> v(val);
+   WSTM::WVar<int> v(val);
 	boost::barrier b(2);
-	boost::thread t(boost::bind(RunAtomic::Start, boost::ref(b), boost::ref(v)));
+	std::thread t(boost::bind(RunAtomic::Start, boost::ref(b), boost::ref(v)));
 	int numRuns = 0;
 	const int res =
-		BSTM::Inconsistently(boost::bind(RunInconsistent::Run,
+		WSTM::Inconsistently(boost::bind(RunInconsistent::Run,
                                        boost::ref(b),
                                        boost::ref(numRuns),
                                        boost::ref(v),
@@ -1448,25 +1447,25 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockAtomic)
 {
 	struct Update
 	{
-		static void Run(BSTM::WVar<int>& v, boost::barrier& b, BSTM::WAtomic& at)
+		static void Run(WSTM::WVar<int>& v, boost::barrier& b, WSTM::WAtomic& at)
 		{
 			b.wait();
 			v.Set(v.Get(at) + 1, at);
 		}
 
-		static void Start(BSTM::WVar<int>& v, boost::barrier& b)
+		static void Start(WSTM::WVar<int>& v, boost::barrier& b)
 		{
-			BSTM::Atomically(boost::bind(Update::Run, boost::ref(v), boost::ref(b), _1));
+			WSTM::Atomically(boost::bind(Update::Run, boost::ref(v), boost::ref(b), _1));
 		}
 	};
 
 	struct Read
 	{
-		static void Run(BSTM::WVar<int>& v,
+		static void Run(WSTM::WVar<int>& v,
                       const int oldVal,
                       boost::barrier& b,
                       int& runs,
-                      BSTM::WAtomic& at)
+                      WSTM::WAtomic& at)
 		{
 			at.ReadLock();
 			if(runs == 0)
@@ -1484,11 +1483,11 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockAtomic)
 	};
 
 	const int init = 555968;
-	BSTM::WVar<int> v(init);
+	WSTM::WVar<int> v(init);
 	boost::barrier b(2);
-	boost::thread t(boost::bind(Update::Start, boost::ref(v), boost::ref(b)));
+	std::thread t(boost::bind(Update::Start, boost::ref(v), boost::ref(b)));
 	int runs = 0;
-	BSTM::Atomically(boost::bind(Read::Run,
+	WSTM::Atomically(boost::bind(Read::Run,
                                 boost::ref(v),
                                 init,
                                 boost::ref(b),
@@ -1501,24 +1500,24 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockInconsistent)
 {
 	struct Update
 	{
-		static void Run(BSTM::WVar<int>& v, boost::barrier& b, BSTM::WAtomic& at)
+		static void Run(WSTM::WVar<int>& v, boost::barrier& b, WSTM::WAtomic& at)
 		{
 			b.wait();
 			v.Set(v.Get(at) + 1, at);
 		}
 
-		static void Start(BSTM::WVar<int>& v, boost::barrier& b)
+		static void Start(WSTM::WVar<int>& v, boost::barrier& b)
 		{
-			BSTM::Atomically(boost::bind(Update::Run, boost::ref(v), boost::ref(b), _1));
+			WSTM::Atomically(boost::bind(Update::Run, boost::ref(v), boost::ref(b), _1));
 		}
 	};
 
 	struct Read
 	{
-		static void Run(BSTM::WVar<int>& v,
+		static void Run(WSTM::WVar<int>& v,
                       const int oldVal,
                       boost::barrier& b,
-                      BSTM::WInconsistent& inc)
+                      WSTM::WInconsistent& inc)
 		{
 			inc.ReadLock();
 			b.wait();
@@ -1531,15 +1530,15 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockInconsistent)
 		}
 	};
 
-   BSTM::InAtomic ();
+   WSTM::InAtomic ();
 	const int init = 106226;
-	BSTM::WVar<int> v(init);
-   BSTM::InAtomic ();
+	WSTM::WVar<int> v(init);
+   WSTM::InAtomic ();
 	boost::barrier b(2);
-   BSTM::InAtomic ();
-	boost::thread t(boost::bind(Update::Start, boost::ref(v), boost::ref(b)));
-   BSTM::InAtomic ();
-	BSTM::Inconsistently(boost::bind(Read::Run, boost::ref(v), init, boost::ref(b), _1));
+   WSTM::InAtomic ();
+	std::thread t(boost::bind(Update::Start, boost::ref(v), boost::ref(b)));
+   WSTM::InAtomic ();
+	WSTM::Inconsistently(boost::bind(Read::Run, boost::ref(v), init, boost::ref(b), _1));
 	t.join();
 }
 
@@ -1547,26 +1546,26 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockRetry)
 {
 	struct Update
 	{
-		static void Run(BSTM::WVar<int>& v, boost::barrier& b, BSTM::WAtomic& at)
+		static void Run(WSTM::WVar<int>& v, boost::barrier& b, WSTM::WAtomic& at)
 		{
 			b.wait();
          boost::this_thread::sleep(boost::posix_time::milliseconds (50));
 			v.Set(v.Get(at) + 1, at);
 		}
 
-		static void Start(BSTM::WVar<int>& v, boost::barrier& b)
+		static void Start(WSTM::WVar<int>& v, boost::barrier& b)
 		{
-			BSTM::Atomically(boost::bind(Update::Run, boost::ref(v), boost::ref(b), _1));
+			WSTM::Atomically(boost::bind(Update::Run, boost::ref(v), boost::ref(b), _1));
 		}
 	};
 					
 	struct Read
 	{
-		static void Run(BSTM::WVar<int>& v,
+		static void Run(WSTM::WVar<int>& v,
                       const int oldVal,
                       boost::barrier& b,
                       int& runs,
-                      BSTM::WAtomic& at)
+                      WSTM::WAtomic& at)
 		{
 			at.ReadLock();
 			const int val = v.Get(at);
@@ -1576,7 +1575,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockRetry)
 				++runs;
 				//if things are working properly then
 				//we should not get a deadlock here
-				BSTM::Retry(at);
+				WSTM::Retry(at);
 			}
 			at.ReadUnlock();
 			BOOST_CHECK_EQUAL(oldVal + runs, val);
@@ -1584,11 +1583,11 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockRetry)
 	};
 
 	const int init = 664040;
-	BSTM::WVar<int> v(init);
+	WSTM::WVar<int> v(init);
 	boost::barrier b(2);
-	boost::thread t(boost::bind(Update::Start, boost::ref(v), boost::ref(b)));
+	std::thread t(boost::bind(Update::Start, boost::ref(v), boost::ref(b)));
 	int runs = 0;
-	BSTM::Atomically(boost::bind(Read::Run,
+	WSTM::Atomically(boost::bind(Read::Run,
                                 boost::ref(v),
                                 init,
                                 boost::ref(b),
@@ -1601,7 +1600,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockIsLocked)
 {
 	struct WTest
 	{
-		static void RunAtomic(BSTM::WAtomic& at)
+		static void RunAtomic(WSTM::WAtomic& at)
 		{
 			at.ReadLock();
 			BOOST_CHECK(at.IsReadLocked());
@@ -1615,13 +1614,13 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockIsLocked)
 			BOOST_CHECK(!at.IsReadLocked());
 
 			{
-				BSTM::WReadLockGuard<BSTM::WAtomic> lock(at);
+				WSTM::WReadLockGuard<WSTM::WAtomic> lock(at);
 				BOOST_CHECK(at.IsReadLocked());
 			}
 			BOOST_CHECK(!at.IsReadLocked());
 		}
 
-		static void RunInconsistent(BSTM::WInconsistent& inc)
+		static void RunInconsistent(WSTM::WInconsistent& inc)
 		{
 			inc.ReadLock();
 			BOOST_CHECK(inc.IsReadLocked());
@@ -1635,14 +1634,14 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockIsLocked)
 			BOOST_CHECK(!inc.IsReadLocked());
 
 			{
-				BSTM::WReadLockGuard<BSTM::WInconsistent> lock(inc);
+				WSTM::WReadLockGuard<WSTM::WInconsistent> lock(inc);
 				BOOST_CHECK(inc.IsReadLocked());
 			}
 			BOOST_CHECK(!inc.IsReadLocked());
 		}
 	};
-	BSTM::Atomically(boost::bind(WTest::RunAtomic, _1));
-	BSTM::Inconsistently(boost::bind(WTest::RunInconsistent, _1));					
+	WSTM::Atomically(boost::bind(WTest::RunAtomic, _1));
+	WSTM::Inconsistently(boost::bind(WTest::RunInconsistent, _1));					
 }
 
 BOOST_AUTO_TEST_CASE (StmVarTests_test_get_split_transaction_levels)
@@ -1652,7 +1651,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_get_split_transaction_levels)
 	//transaction levels
 	struct Subs
 	{
-		static void Run(BSTM::WVar<int>& v, const int maxLvl, const int lvl, BSTM::WAtomic& at)
+		static void Run(WSTM::WVar<int>& v, const int maxLvl, const int lvl, WSTM::WAtomic& at)
 		{
 			if(lvl == 1 || lvl == maxLvl)
 			{
@@ -1660,16 +1659,16 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_get_split_transaction_levels)
 			}
 			if(lvl < maxLvl)
 			{
-				BSTM::Atomically(boost::bind(Subs::Run, boost::ref(v), maxLvl, lvl + 1, _1));
+				WSTM::Atomically(boost::bind(Subs::Run, boost::ref(v), maxLvl, lvl + 1, _1));
 			}
 		}
 	};
-	BSTM::WVar<int> v(0);
+	WSTM::WVar<int> v(0);
 	for(int maxLvl = 3; maxLvl < 6; ++ maxLvl)
 	{
 		//an assertion inside of Var::commit will fail
 		//if there is a problem
-		BSTM::Atomically(boost::bind(Subs::Run, boost::ref(v), maxLvl, 1, _1));
+		WSTM::Atomically(boost::bind(Subs::Run, boost::ref(v), maxLvl, 1, _1));
 	}
 
    BOOST_CHECK (true);
@@ -1682,7 +1681,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_set_split_transaction_levels)
 	//transaction levels
 	struct Subs
 	{
-		static void Run(BSTM::WVar<int>& v, const int maxLvl, const int lvl, BSTM::WAtomic& at)
+		static void Run(WSTM::WVar<int>& v, const int maxLvl, const int lvl, WSTM::WAtomic& at)
 		{
 			if(lvl == 1 || lvl == maxLvl)
 			{
@@ -1690,16 +1689,16 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_set_split_transaction_levels)
 			}
 			if(lvl < maxLvl)
 			{
-				BSTM::Atomically(boost::bind(Subs::Run, boost::ref(v), maxLvl, lvl + 1, _1));
+				WSTM::Atomically(boost::bind(Subs::Run, boost::ref(v), maxLvl, lvl + 1, _1));
 			}
 		}
 	};
-	BSTM::WVar<int> v(0);
+	WSTM::WVar<int> v(0);
 	for(int maxLvl = 3; maxLvl < 6; ++ maxLvl)
 	{
 		//an assertion inside of Var::commit will fail
 		//if there is a problem
-		BSTM::Atomically(boost::bind(Subs::Run, boost::ref(v), maxLvl, 1, _1));
+		WSTM::Atomically(boost::bind(Subs::Run, boost::ref(v), maxLvl, 1, _1));
 	}
 
    BOOST_CHECK (true);
@@ -1714,7 +1713,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_validation_fail)
 	//transaction would cause an infinite loop.
 	struct GetVar
 	{
-		static void Run(BSTM::WVar<int>& v, const int lvl, boost::barrier& b, BSTM::WAtomic& at)
+		static void Run(WSTM::WVar<int>& v, const int lvl, boost::barrier& b, WSTM::WAtomic& at)
 		{
 			v.Get(at);
 			if(lvl == 1)
@@ -1730,14 +1729,14 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_validation_fail)
 	};
 	struct OtherThread
 	{
-		static void Run(BSTM::WVar<int>& v, boost::barrier& b)
+		static void Run(WSTM::WVar<int>& v, boost::barrier& b)
 		{
 			Atomically(boost::bind(GetVar::Run, boost::ref(v), 1, boost::ref(b), _1));
 		}
 	};
 	boost::barrier b(2);
-	BSTM::WVar<int> v(0);
-	boost::thread t(boost::bind(OtherThread::Run, boost::ref(v), boost::ref(b)));
+	WSTM::WVar<int> v(0);
+	std::thread t(boost::bind(OtherThread::Run, boost::ref(v), boost::ref(b)));
 	b.wait();
 	//other thread has got var
    v.Set (1);
@@ -1757,7 +1756,7 @@ namespace
    struct WAtomicallyInDtor
    {
       int m_value;
-      BSTM::WVar<int> m_var;
+      WSTM::WVar<int> m_var;
       WAtomicallyInDtor ();
       WAtomicallyInDtor (const WAtomicallyInDtor& other);
       WAtomicallyInDtor& operator=(const WAtomicallyInDtor& other);
@@ -1781,7 +1780,7 @@ namespace
       return *this;
    }
 
-   void UpdateValue (BSTM::WVar<WAtomicallyInDtor>& var, BSTM::WAtomic& at)
+   void UpdateValue (WSTM::WVar<WAtomicallyInDtor>& var, WSTM::WAtomic& at)
    {
       const WAtomicallyInDtor& old = var.Get (at);
       WAtomicallyInDtor newOne (old);
@@ -1791,8 +1790,8 @@ namespace
    
    WAtomicallyInDtor::~WAtomicallyInDtor ()
    {
-      const int val = BSTM::Atomically (boost::bind (&BSTM::WVar<int>::Get, boost::ref (m_var), _1));
-      BSTM::Atomically (boost::bind (&BSTM::WVar<int>::Set, boost::ref (m_var), val + 1, _1));
+      const int val = WSTM::Atomically (boost::bind (&WSTM::WVar<int>::Get, boost::ref (m_var), _1));
+      WSTM::Atomically (boost::bind (&WSTM::WVar<int>::Set, boost::ref (m_var), val + 1, _1));
    }
 }
 
@@ -1800,8 +1799,8 @@ BOOST_AUTO_TEST_CASE (StmVarTests_AtomicallyInValueDtor)
 {
    //This tests the use of Atomically in the dtor of a value stored in
    //a WVar (there used to be a problem with doing this)
-   BSTM::WVar<WAtomicallyInDtor> var;
-   BSTM::Atomically (boost::bind (UpdateValue, boost::ref (var), _1));
+   WSTM::WVar<WAtomicallyInDtor> var;
+   WSTM::Atomically (boost::bind (UpdateValue, boost::ref (var), _1));
    //If we got here with no assertions then the test has passed
    BOOST_CHECK (true);
 }
@@ -1815,15 +1814,15 @@ BOOST_AUTO_TEST_CASE (StmVarTests_AtomicallyDuringThreadExit)
 
    struct WThreadFunc
    {
-      boost::shared_ptr<barrier> m_bar_p;
+      std::shared_ptr<barrier> m_bar_p;
       bool m_run;
       
-      WThreadFunc (const boost::shared_ptr<barrier>& bar_p):
+      WThreadFunc (const std::shared_ptr<barrier>& bar_p):
          m_bar_p (bar_p),
          m_run (false)
       {}
 
-      static void DuringThreadExit (BSTM::WAtomic& /*at*/)
+      static void DuringThreadExit (WSTM::WAtomic& /*at*/)
       {
          //does nothing, calling atomically will cause a failure
          //before we get here
@@ -1835,7 +1834,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_AtomicallyDuringThreadExit)
 
          //run a transaction so that the STM system sets up its thread
          //cleanup function
-         BSTM::WVar<int> v (0);
+         WSTM::WVar<int> v (0);
          v.Set (1);
 
          m_run = true;
@@ -1845,19 +1844,19 @@ BOOST_AUTO_TEST_CASE (StmVarTests_AtomicallyDuringThreadExit)
       {
          if (m_run)
          {
-            BSTM::Atomically (boost::bind (DuringThreadExit, _1));
+            WSTM::Atomically (boost::bind (DuringThreadExit, _1));
             m_bar_p->wait ();
          }
       }
       
    };
 
-   boost::shared_ptr<barrier> bar_p (new barrier (2));
+   std::shared_ptr<barrier> bar_p (new barrier (2));
    {
       //scope introduced so that the thread object will be gone by the
       //time the WThreadFunc dtor runs, otherwise we don't get the
       //right effect and miss any memory corruption
-      bss::thread::WThread ("ADTE", WThreadFunc (bar_p));
+      std::thread (WThreadFunc (bar_p));
    }
    bar_p->wait ();
    bar_p->wait ();   
@@ -1868,11 +1867,11 @@ BOOST_AUTO_TEST_CASE (StmVarTests_AtomicallyDuringThreadExit)
 
 BOOST_AUTO_TEST_CASE (single_var_validation)
 {
-   auto var1 = BSTM::WVar<bool>(false);
-   auto var2 = BSTM::WVar<bool>(false);
+   auto var1 = WSTM::WVar<bool>(false);
+   auto var2 = WSTM::WVar<bool>(false);
    auto preCounter = 0;
    auto postCounter = 0;
-   BSTM::Atomically ([&](BSTM::WAtomic& at)
+   WSTM::Atomically ([&](WSTM::WAtomic& at)
                      {
                         ++preCounter;
                         var1.Get (at);
@@ -1889,7 +1888,7 @@ BOOST_AUTO_TEST_CASE (single_var_validation)
    postCounter = 0;
    auto firstTime = true;
    auto gotConflict = false;
-   BSTM::Atomically ([&](BSTM::WAtomic& at)
+   WSTM::Atomically ([&](WSTM::WAtomic& at)
                      {
                         if (!firstTime)
                         {
@@ -1916,18 +1915,17 @@ BOOST_AUTO_TEST_CASE (single_var_validation)
    var2.Set (false);
    
    barrier bar (2);
-   bss::thread::WThread conflicter ("svv",
-                                    [&]()
-                                    {
-                                       bar.wait ();
-                                       var1.Set (true);
-                                       bar.wait ();
-                                    });
+   std::thread conflicter ([&]()
+                           {
+                              bar.wait ();
+                              var1.Set (true);
+                              bar.wait ();
+                           });
    preCounter = 0;
    auto middleCounter = 0;
    postCounter = 0;
    firstTime = true;
-   BSTM::Atomically ([&](BSTM::WAtomic& at)
+   WSTM::Atomically ([&](WSTM::WAtomic& at)
                      {
                         ++preCounter;
                         var1.Get (at);
@@ -1949,12 +1947,12 @@ BOOST_AUTO_TEST_CASE (single_var_validation)
    BOOST_CHECK_EQUAL (middleCounter, 2);
    BOOST_CHECK_EQUAL (postCounter, 1);
 
-   conflicter.GetThread ().join ();
+   conflicter.join ();
 }
 
 namespace OnFailedUtils
 {
-   void NoFailTrans (bool& flag1, BSTM::WVar<bool>& flag2_v, BSTM::WAtomic& at)
+   void NoFailTrans (bool& flag1, WSTM::WVar<bool>& flag2_v, WSTM::WAtomic& at)
    {
       at.OnFail ([&](){flag1 = true;});
       at.OnFail ([&](){flag2_v.Set (true);});
@@ -1967,8 +1965,8 @@ BOOST_AUTO_TEST_CASE (StmVarTests_OnFailed_no_failure)
    using namespace  OnFailedUtils;
 
    bool failed1 = false;
-   BSTM::WVar<bool> failed2_v (false);
-   BSTM::Atomically ([&](BSTM::WAtomic& at){OnFailedUtils::NoFailTrans (failed1, failed2_v, at);});
+   WSTM::WVar<bool> failed2_v (false);
+   WSTM::Atomically ([&](WSTM::WAtomic& at){OnFailedUtils::NoFailTrans (failed1, failed2_v, at);});
    BOOST_CHECK (!failed1);
    BOOST_CHECK (!failed2_v.GetReadOnly ());
 }
@@ -1978,7 +1976,7 @@ namespace OnFailedUtils
    struct WAborted
    {};
 
-   void AbortTrans (bool& flag1, BSTM::WVar<bool>& flag2_v, BSTM::WAtomic& at)
+   void AbortTrans (bool& flag1, WSTM::WVar<bool>& flag2_v, WSTM::WAtomic& at)
    {
       at.OnFail ([&]()
                  {
@@ -1996,11 +1994,11 @@ namespace OnFailedUtils
 BOOST_AUTO_TEST_CASE (StmVarTests_OnFailed_abort)
 {
    bool failed1 = false;
-   BSTM::WVar<bool> failed2_v (false);
+   WSTM::WVar<bool> failed2_v (false);
    bool gotExc = false;
    try
    {
-      BSTM::Atomically ([&](BSTM::WAtomic& at)
+      WSTM::Atomically ([&](WSTM::WAtomic& at)
                         {
                            OnFailedUtils::AbortTrans (failed1, failed2_v, at);
                         });
@@ -2016,8 +2014,8 @@ BOOST_AUTO_TEST_CASE (StmVarTests_OnFailed_abort)
 
 namespace OnFailedUtils
 {
-   void ConflicterThread (const BSTM::WVar<int>::Ptr& var_p,
-                          const boost::shared_ptr<boost::barrier>& bar_p)
+   void ConflicterThread (const std::shared_ptr<WSTM::WVar<int>>& var_p,
+                          const std::shared_ptr<boost::barrier>& bar_p)
    {
       bar_p->wait ();
       var_p->Set (35402);
@@ -2025,10 +2023,10 @@ namespace OnFailedUtils
    }
 
    void ConflictTrans (bool& flag1,
-                       BSTM::WVar<bool>& flag2_v,
-                       const BSTM::WVar<int>::Ptr& var_p,
-                       const boost::shared_ptr<boost::barrier>& bar_p,
-                       BSTM::WAtomic& at)
+                       WSTM::WVar<bool>& flag2_v,
+                       const std::shared_ptr<WSTM::WVar<int>>& var_p,
+                       const std::shared_ptr<boost::barrier>& bar_p,
+                       WSTM::WAtomic& at)
    {
       at.OnFail ([&](){flag1 = true;});
       at.OnFail ([&](){flag2_v.Set (true);});
@@ -2046,38 +2044,39 @@ BOOST_AUTO_TEST_CASE (StmVarTests_OnFailed_conflict)
    using namespace  OnFailedUtils;
 
    bool failed1 = false;
-   BSTM::WVar<bool> failed2_v (false);
-   BSTM::WVar<int>::Ptr var_p (new BSTM::WVar<int>(0));
-   boost::shared_ptr<boost::barrier> bar_p (new boost::barrier (2));
-   bss::thread::WThread t ("conflicter", [=](){ConflicterThread (var_p, bar_p);});
-   BSTM::Atomically (
-      [&, bar_p, var_p](BSTM::WAtomic& at)
+   WSTM::WVar<bool> failed2_v (false);
+   auto var_p = std::make_shared<WSTM::WVar<int>>(0);
+   auto bar_p = std::make_shared<boost::barrier> (2);
+   std::thread t ([=](){ConflicterThread (var_p, bar_p);});
+   WSTM::Atomically (
+      [&, bar_p, var_p](WSTM::WAtomic& at)
       {OnFailedUtils::ConflictTrans (failed1, failed2_v, var_p, bar_p, at);});
    BOOST_CHECK (failed1);
-   BOOST_CHECK (failed2_v.GetReadOnly ());   
+   BOOST_CHECK (failed2_v.GetReadOnly ());
+   t.join ();
 }
 
 namespace OnFailedUtils
 {
-   void RetryUpdateThread (const BSTM::WVar<int>::Ptr& var_p,
-                           const boost::shared_ptr<boost::barrier>& bar_p)
+   void RetryUpdateThread (const std::shared_ptr<WSTM::WVar<int>>& var_p,
+                           const std::shared_ptr<boost::barrier>& bar_p)
    {
       bar_p->wait ();
       var_p->Set (35402);
    }
 
    void RetryTrans (bool& flag1,
-                    BSTM::WVar<bool>& flag2_v,
-                    const BSTM::WVar<int>::Ptr& var_p,
-                    const boost::shared_ptr<boost::barrier>& bar_p,
-                    BSTM::WAtomic& at)
+                    WSTM::WVar<bool>& flag2_v,
+                    const std::shared_ptr<WSTM::WVar<int>>& var_p,
+                    const std::shared_ptr<boost::barrier>& bar_p,
+                    WSTM::WAtomic& at)
    {
       at.OnFail ([&](){flag1 = true;});
       at.OnFail ([&](){flag2_v.Set (true);});
       if (var_p->Get (at) == 0)
       {
          bar_p->wait ();
-         BSTM::Retry (at);
+         WSTM::Retry (at);
       }
    }
 }
@@ -2087,15 +2086,16 @@ BOOST_AUTO_TEST_CASE (StmVarTests_OnFailed_retry)
    using namespace  OnFailedUtils;
 
    bool failed1 = false;
-   BSTM::WVar<bool> failed2_v (false);
-   BSTM::WVar<int>::Ptr var_p (new BSTM::WVar<int>(0));
-   boost::shared_ptr<boost::barrier> bar_p (new boost::barrier (2));
-   bss::thread::WThread t ("retry update", [=](){RetryUpdateThread (var_p, bar_p);});
-   BSTM::Atomically (
-      [&, bar_p, var_p](BSTM::WAtomic& at)
+   WSTM::WVar<bool> failed2_v (false);
+   std::shared_ptr<WSTM::WVar<int>> var_p (new WSTM::WVar<int>(0));
+   std::shared_ptr<boost::barrier> bar_p (new boost::barrier (2));
+   std::thread t ([=](){RetryUpdateThread (var_p, bar_p);});
+   WSTM::Atomically (
+      [&, bar_p, var_p](WSTM::WAtomic& at)
       {OnFailedUtils::RetryTrans (failed1, failed2_v, var_p, bar_p, at);});
    BOOST_CHECK (failed1);
-   BOOST_CHECK (failed2_v.GetReadOnly ());   
+   BOOST_CHECK (failed2_v.GetReadOnly ());
+   t.join ();
 }
 
 namespace OnFailedUtils
@@ -2104,15 +2104,15 @@ namespace OnFailedUtils
    {
       typedef void result_type;
       
-      boost::function<void (BSTM::WAtomic&)> m_trans;
+      boost::function<void (WSTM::WAtomic&)> m_trans;
 
-      NestTrans (boost::function<void (BSTM::WAtomic&)> trans):
+      NestTrans (boost::function<void (WSTM::WAtomic&)> trans):
          m_trans (trans)
       {}
 
-      void operator()(BSTM::WAtomic&) const
+      void operator()(WSTM::WAtomic&) const
       {
-         BSTM::Atomically (m_trans);
+         WSTM::Atomically (m_trans);
       }
    };
    
@@ -2123,9 +2123,9 @@ BOOST_AUTO_TEST_CASE (StmVarTests_OnFailed_nested_no_failure)
    using namespace  OnFailedUtils;
 
    bool failed1 = false;
-   BSTM::WVar<bool> failed2_v (false);
-   BSTM::Atomically (
-      NestTrans ([&](BSTM::WAtomic& at) {OnFailedUtils::NoFailTrans (failed1, failed2_v, at);}));
+   WSTM::WVar<bool> failed2_v (false);
+   WSTM::Atomically (
+      NestTrans ([&](WSTM::WAtomic& at) {OnFailedUtils::NoFailTrans (failed1, failed2_v, at);}));
    BOOST_CHECK (!failed1);
    BOOST_CHECK (!failed2_v.GetReadOnly ());
 }
@@ -2135,12 +2135,12 @@ BOOST_AUTO_TEST_CASE (StmVarTests_OnFailed_nested_abort)
    using namespace  OnFailedUtils;
    
    bool failed1 = false;
-   BSTM::WVar<bool> failed2_v (false);
+   WSTM::WVar<bool> failed2_v (false);
    bool gotExc = false;
    try
    {
-      BSTM::Atomically (
-         NestTrans ([&](BSTM::WAtomic& at) {OnFailedUtils::AbortTrans (failed1, failed2_v, at);}));
+      WSTM::Atomically (
+         NestTrans ([&](WSTM::WAtomic& at) {OnFailedUtils::AbortTrans (failed1, failed2_v, at);}));
    }
    catch(WAborted&)
    {
@@ -2156,16 +2156,17 @@ BOOST_AUTO_TEST_CASE (StmVarTests_OnFailed_nested_conflict)
    using namespace  OnFailedUtils;
 
    bool failed1 = false;
-   BSTM::WVar<bool> failed2_v (false);
-   BSTM::WVar<int>::Ptr var_p (new BSTM::WVar<int>(0));
-   boost::shared_ptr<boost::barrier> bar_p (new boost::barrier (2));
-   bss::thread::WThread t ("conflicter", [=](){ConflicterThread (var_p, bar_p);});
-   BSTM::Atomically (
+   WSTM::WVar<bool> failed2_v (false);
+   std::shared_ptr<WSTM::WVar<int>> var_p (new WSTM::WVar<int>(0));
+   std::shared_ptr<boost::barrier> bar_p (new boost::barrier (2));
+   std::thread t ([=](){ConflicterThread (var_p, bar_p);});
+   WSTM::Atomically (
       NestTrans (
-         [&, var_p, bar_p](BSTM::WAtomic& at)
+         [&, var_p, bar_p](WSTM::WAtomic& at)
          {OnFailedUtils::ConflictTrans (failed1, failed2_v, var_p, bar_p, at);}));
    BOOST_CHECK (failed1);
    BOOST_CHECK (failed2_v.GetReadOnly ());   
+   t.join ();
 }
 
 BOOST_AUTO_TEST_CASE (StmVarTests_OnFailed_nested_retry)
@@ -2173,26 +2174,27 @@ BOOST_AUTO_TEST_CASE (StmVarTests_OnFailed_nested_retry)
    using namespace  OnFailedUtils;
 
    bool failed1 = false;
-   BSTM::WVar<bool> failed2_v (false);
-   BSTM::WVar<int>::Ptr var_p (new BSTM::WVar<int>(0));
-   boost::shared_ptr<boost::barrier> bar_p (new boost::barrier (2));
-   bss::thread::WThread t ("retry update", [=](){RetryUpdateThread (var_p, bar_p);});
-   BSTM::Atomically (
+   WSTM::WVar<bool> failed2_v (false);
+   std::shared_ptr<WSTM::WVar<int>> var_p (new WSTM::WVar<int>(0));
+   std::shared_ptr<boost::barrier> bar_p (new boost::barrier (2));
+   std::thread t ([=](){RetryUpdateThread (var_p, bar_p);});
+   WSTM::Atomically (
       NestTrans (
-         [&, var_p, bar_p](BSTM::WAtomic& at)
+         [&, var_p, bar_p](WSTM::WAtomic& at)
          {OnFailedUtils::RetryTrans (failed1, failed2_v, var_p, bar_p, at);}));
    BOOST_CHECK (failed1);
    BOOST_CHECK (failed2_v.GetReadOnly ());   
+   t.join ();
 }
 
 BOOST_AUTO_TEST_CASE (StmVarTests_lambda_atomic)
 {
    //checking that Atomically works with c++ lambda objects
    const int INIT_VAL = 846141;
-   BSTM::WVar<int> var (INIT_VAL);
+   WSTM::WVar<int> var (INIT_VAL);
    const int INC_VAR = 241;
    const int INC_RES = 5215;
-   const int res = BSTM::Atomically ([&](BSTM::WAtomic& at) -> int
+   const int res = WSTM::Atomically ([&](WSTM::WAtomic& at) -> int
                                      {
                                         const int old = var.Get (at);
                                         var.Set (old + INC_VAR, at);
@@ -2206,8 +2208,8 @@ BOOST_AUTO_TEST_CASE (StmVarTests_lambda_inconsistent)
 {
    //checking that Inconsistently works with c++ lambda objects
    const int INIT_VAL = 846141;
-   BSTM::WVar<int> var (INIT_VAL);
-   const int res = BSTM::Inconsistently ([&] (BSTM::WInconsistent& inc)
+   WSTM::WVar<int> var (INIT_VAL);
+   const int res = WSTM::Inconsistently ([&] (WSTM::WInconsistent& inc)
                                          {
                                             return var.GetInconsistent (inc);
                                          });
@@ -2218,19 +2220,19 @@ namespace dtor_trans_during_restart_utils
 {
    struct WTransInDtor
    {
-      typedef boost::shared_ptr<WTransInDtor> Ptr;
+      typedef std::shared_ptr<WTransInDtor> Ptr;
 
-      WTransInDtor (BSTM::WVar<int>& v, const int i):
+      WTransInDtor (WSTM::WVar<int>& v, const int i):
          m_v (v),
          m_i (i)
       {}
 
-      BSTM::WVar<int>& m_v;
+      WSTM::WVar<int>& m_v;
       int m_i;
    
       ~WTransInDtor ()
       {
-         BSTM::Atomically ([&](BSTM::WAtomic& at)
+         WSTM::Atomically ([&](WSTM::WAtomic& at)
                            {
                               m_v.Set (m_i, at);
                            });
@@ -2251,15 +2253,14 @@ BOOST_AUTO_TEST_CASE (StmVarTests_dtor_trans_during_restart)
    //also cause memory corruption and most likely a crash. See
    //TestTrack issue 9964 for details.
 
-   BSTM::WVar<int> value (0);
+   WSTM::WVar<int> value (0);
    boost::barrier b (2);
 
    using namespace  dtor_trans_during_restart_utils;
    const int EXPECTED_VALUE = 625065;
-   BSTM::WVar<WTransInDtor::Ptr> transInDtor (
-      boost::make_shared<WTransInDtor>(value, EXPECTED_VALUE));
+   auto transInDtor = WSTM::WVar<WTransInDtor::Ptr>(std::make_shared<WTransInDtor>(value, EXPECTED_VALUE));
 
-   auto Conflictee = [&](BSTM::WAtomic& at)
+   auto Conflictee = [&](WSTM::WAtomic& at)
       {
          //We don't care about the actual value of transInDtor, we
          //just Get it so that it gets stored in our transaction
@@ -2271,7 +2272,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_dtor_trans_during_restart)
          b.wait ();
       };
 
-   auto Conflicter = [&](BSTM::WAtomic& at)
+   auto Conflicter = [&](WSTM::WAtomic& at)
       {
          //wait for the Conflictee thread to get the transInDtor value
          b.wait ();
@@ -2284,8 +2285,8 @@ BOOST_AUTO_TEST_CASE (StmVarTests_dtor_trans_during_restart)
          at.After ([&](){b.wait ();}); 
       };
    
-   boost::thread t1 ([=](){BSTM::Atomically (Conflictee);});
-   boost::thread t2 ([=](){BSTM::Atomically (Conflicter);});
+   std::thread t1 ([=](){WSTM::Atomically (Conflictee);});
+   std::thread t2 ([=](){WSTM::Atomically (Conflicter);});
    t2.join ();
    //We need these waits so that Conflictee won't block forever after
    //having its transaction restarted (the first time through the
@@ -2307,7 +2308,7 @@ BOOST_AUTO_TEST_CASE (test_RunAtomically)
 {
 	struct WTest
 	{
-		static int Run(BSTM::WVar<int>& v, BSTM::WAtomic& at)
+		static int Run(WSTM::WVar<int>& v, WSTM::WAtomic& at)
 		{
 			const int val = v.Get(at);
 			v.Set(val + 1, at);
@@ -2316,29 +2317,54 @@ BOOST_AUTO_TEST_CASE (test_RunAtomically)
 	};
 
 	const int orig = 402455;
-	BSTM::WVar<int> v(orig);
+	WSTM::WVar<int> v(orig);
 					
-   BSTM::WRunAtomically<int> r(boost::bind(WTest::Run, boost::ref(v), _1));
-	const int res = r();
+   auto r = WSTM::RunAtomically (boost::bind(WTest::Run, boost::ref(v), _1));
+	const auto res = r();
 	BOOST_CHECK_EQUAL(orig, res);
 	BOOST_CHECK_EQUAL(orig + 1, v.GetReadOnly());
 
-	const int res2 = BSTM::RunAtomically(boost::bind(WTest::Run, boost::ref(v), _1))();
+	const auto res2 = WSTM::RunAtomically(boost::bind(WTest::Run, boost::ref(v), _1))();
 	BOOST_CHECK_EQUAL(orig + 1, res2);
 	BOOST_CHECK_EQUAL(orig + 2, v.GetReadOnly());
 }
 
+BOOST_AUTO_TEST_CASE (test_RunAtomically_void_return)
+{
+	const int orig = 402455;
+	WSTM::WVar<int> v(orig);
+   int current = 0;
+
+   const auto Test =
+      [&](WSTM::WAtomic& at)
+      {
+         current = v.Get (at);
+         v.Set (current + 1, at);
+      };
+   auto r = WSTM::RunAtomically (Test);
+	r();
+	BOOST_CHECK_EQUAL(orig, current);
+	BOOST_CHECK_EQUAL(orig + 1, v.GetReadOnly());
+
+	WSTM::RunAtomically(Test)();
+	BOOST_CHECK_EQUAL(orig + 1, current);
+	BOOST_CHECK_EQUAL(orig + 2, v.GetReadOnly());
+}
+
+//TODO: test RunAtomically with options
 
 namespace
 {
    struct WMoveOnly
    {
-      NO_COPYING (WMoveOnly);
-
    public:
       int m_value;
 
       explicit WMoveOnly (const int value) : m_value (value) {}
+
+      WMoveOnly (const WMoveOnly&) = delete;
+      void operator= (const WMoveOnly&) = delete;
+
       WMoveOnly (WMoveOnly&& m) :
          m_value (m.m_value)
       {
@@ -2357,13 +2383,13 @@ namespace
 
 BOOST_AUTO_TEST_CASE (move_result)
 {   
-   const auto F = [](const int value, BSTM::WAtomic& at) -> WMoveOnly
+   const auto F = [](const int value, WSTM::WAtomic& at) -> WMoveOnly
       {
          UNUSED_VAR (at);
          return WMoveOnly (value);
       };
    const auto value = 50578;
-   const auto m = BSTM::Atomically ([&](BSTM::WAtomic& at){return F (value, at);});
+   const auto m = WSTM::Atomically ([&](WSTM::WAtomic& at){return F (value, at);});
    BOOST_CHECK_EQUAL (m.m_value, value);
 }
 
@@ -2389,13 +2415,13 @@ namespace
 
 BOOST_AUTO_TEST_CASE (copy_result)
 {
-   const auto F = [](const int value, BSTM::WAtomic& at) -> WCopyOnly
+   const auto F = [](const int value, WSTM::WAtomic& at) -> WCopyOnly
       {
          UNUSED_VAR (at);
          return WCopyOnly (value);
       };
    const auto value = 50578;
-   const auto m = BSTM::Atomically ([&](BSTM::WAtomic& at){return F (value, at);});
+   const auto m = WSTM::Atomically ([&](WSTM::WAtomic& at){return F (value, at);});
    BOOST_CHECK_EQUAL (m.m_value, value);
 }
 
@@ -2405,20 +2431,20 @@ BOOST_AUTO_TEST_SUITE(BeforeCommitTests)
 
 BOOST_AUTO_TEST_CASE(BeforeCommitTests_test_run)
 {
-   BSTM::WAtomic* bcAt_p = nullptr;
+   WSTM::WAtomic* bcAt_p = nullptr;
    auto beforeCommit =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          bcAt_p = &at;
       };
-   BSTM::WAtomic* at_p = nullptr;
+   WSTM::WAtomic* at_p = nullptr;
    auto func =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          at_p = &at;
          at.BeforeCommit (beforeCommit);
       };
-   BSTM::Atomically (func);
+   WSTM::Atomically (func);
    BOOST_CHECK (at_p);
    BOOST_CHECK (bcAt_p);
    BOOST_CHECK_EQUAL (bcAt_p, at_p);
@@ -2426,28 +2452,28 @@ BOOST_AUTO_TEST_CASE(BeforeCommitTests_test_run)
 
 BOOST_AUTO_TEST_CASE(BeforeCommitTests_test_child_reg)
 {
-   BSTM::WAtomic* bcAt_p = nullptr;
+   WSTM::WAtomic* bcAt_p = nullptr;
    auto beforeCommit =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          bcAt_p = &at;
       };
-   BSTM::WAtomic* childAt_p = nullptr;
+   WSTM::WAtomic* childAt_p = nullptr;
    auto child =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          childAt_p = &at;
          at.BeforeCommit (beforeCommit);
       };      
-   BSTM::WAtomic* at_p = nullptr;
+   WSTM::WAtomic* at_p = nullptr;
    auto func =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          at_p = &at;
-         BSTM::Atomically (child);
+         WSTM::Atomically (child);
          BOOST_CHECK (!bcAt_p);
       };
-   BSTM::Atomically (func);
+   WSTM::Atomically (func);
    BOOST_CHECK_NE (at_p, childAt_p);
    BOOST_CHECK (at_p);
    BOOST_CHECK (bcAt_p);
@@ -2456,28 +2482,28 @@ BOOST_AUTO_TEST_CASE(BeforeCommitTests_test_child_reg)
 
 BOOST_AUTO_TEST_CASE(BeforeCommitTests_test_parent_reg)
 {
-   BSTM::WAtomic* bcAt_p = nullptr;
+   WSTM::WAtomic* bcAt_p = nullptr;
    auto beforeCommit =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          bcAt_p = &at;
       };
-   BSTM::WAtomic* childAt_p = nullptr;
+   WSTM::WAtomic* childAt_p = nullptr;
    auto child =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          childAt_p = &at;
       };      
-   BSTM::WAtomic* at_p = nullptr;
+   WSTM::WAtomic* at_p = nullptr;
    auto func =
-      [&](BSTM::WAtomic& at)
+      [&](WSTM::WAtomic& at)
       {
          at_p = &at;
          at.BeforeCommit (beforeCommit);
-         BSTM::Atomically (child);
+         WSTM::Atomically (child);
          BOOST_CHECK (!bcAt_p);
       };
-   BSTM::Atomically (func);
+   WSTM::Atomically (func);
    BOOST_CHECK_NE (at_p, childAt_p);
    BOOST_CHECK (at_p);
    BOOST_CHECK (bcAt_p);
@@ -2490,10 +2516,10 @@ BOOST_AUTO_TEST_SUITE(LocalValueTests)
 
 BOOST_AUTO_TEST_CASE (set_get)
 {
-   BSTM::WTransactionLocalValue<int> value;
+   WSTM::WTransactionLocalValue<int> value;
    const auto newValue = 564037;
-   BSTM::Atomically (
-      [&](BSTM::WAtomic& at)
+   WSTM::Atomically (
+      [&](WSTM::WAtomic& at)
       {
          BOOST_CHECK (!value.Get (at));
          BOOST_CHECK_EQUAL (value.Set (newValue, at), newValue);
@@ -2502,8 +2528,8 @@ BOOST_AUTO_TEST_CASE (set_get)
          //leave a value in the variable at the end to test if it gets carried over to the next transaction
       });
 
-   BSTM::Atomically (
-      [&](BSTM::WAtomic& at)
+   WSTM::Atomically (
+      [&](WSTM::WAtomic& at)
       {
          //make sure that the value from the last transaction didn't carry over
          BOOST_CHECK (!value.Get (at));
@@ -2514,7 +2540,6 @@ namespace
 {
    class MoveOnly
    {
-      NO_COPYING (MoveOnly);
    public:
       int m_value;
 
@@ -2522,6 +2547,9 @@ namespace
          m_value (value)
       {}
 
+      MoveOnly (const MoveOnly&) = delete;
+      MoveOnly& operator=(const MoveOnly&) = delete;
+      
       MoveOnly (MoveOnly&& m):
          m_value (m.m_value)
       {
@@ -2539,10 +2567,10 @@ namespace
 
 BOOST_AUTO_TEST_CASE (set_get_move_only)
 {
-   BSTM::WTransactionLocalValue<MoveOnly> value;
+   WSTM::WTransactionLocalValue<MoveOnly> value;
    const auto newValue = 564037;
-   BSTM::Atomically (
-      [&](BSTM::WAtomic& at)
+   WSTM::Atomically (
+      [&](WSTM::WAtomic& at)
       {
          BOOST_CHECK (!value.Get (at));
          auto& setValue = value.Set (MoveOnly (newValue), at);
@@ -2562,42 +2590,42 @@ BOOST_AUTO_TEST_CASE (set_get_move_only)
 
 BOOST_AUTO_TEST_CASE (no_thread_sharing)
 {
-   BSTM::WTransactionLocalValue<int> value;
+   WSTM::WTransactionLocalValue<int> value;
    boost::barrier b (2);
    
-   boost::thread t1 (BSTM::RunAtomically (
-                        [&b, &value](BSTM::WAtomic& at)
-                        {
-                           const auto newValue = 215177;
-                           value.Set (newValue, at);
-
-                           //wait for the other transaction to set it's value
-                           b.wait ();
-
-                           //check that we get out value and not the other transactions's
-                           BOOST_CHECK (value.Get (at));
-                           if (auto val_p = value.Get (at))
-                           {
-                              BOOST_CHECK_EQUAL (*val_p, newValue);
-                           }
-                        }));
-                     
-   boost::thread t2 (BSTM::RunAtomically (
-                        [&b, &value](BSTM::WAtomic& at)
-                        {
-                           const auto newValue = 301152;
-                           value.Set (newValue, at);
-                           
-                           //wait for the other transaction to set it's value
-                           b.wait ();
-
-                           //check that we get out value and not the other transactions's
-                           BOOST_CHECK (value.Get (at));
-                           if (auto val_p = value.Get (at))
-                           {
-                              BOOST_CHECK_EQUAL (*val_p, newValue);
-                           }
-                        }));
+   std::thread t1 (WSTM::RunAtomically (
+                      [&b, &value](WSTM::WAtomic& at)
+                      {
+                         const auto newValue = 215177;
+                         value.Set (newValue, at);
+                         
+                         //wait for the other transaction to set it's value
+                         b.wait ();
+                         
+                         //check that we get out value and not the other transactions's
+                         BOOST_CHECK (value.Get (at));
+                         if (auto val_p = value.Get (at))
+                         {
+                            BOOST_CHECK_EQUAL (*val_p, newValue);
+                         }
+                      }));
+   
+   std::thread t2 (WSTM::RunAtomically (
+                      [&b, &value](WSTM::WAtomic& at)
+                      {
+                         const auto newValue = 301152;
+                         value.Set (newValue, at);
+                         
+                         //wait for the other transaction to set it's value
+                         b.wait ();
+                         
+                         //check that we get out value and not the other transactions's
+                         BOOST_CHECK (value.Get (at));
+                         if (auto val_p = value.Get (at))
+                         {
+                            BOOST_CHECK_EQUAL (*val_p, newValue);
+                         }
+                      }));
 
    t1.join ();
    t2.join ();
@@ -2605,11 +2633,11 @@ BOOST_AUTO_TEST_CASE (no_thread_sharing)
 
 BOOST_AUTO_TEST_CASE (multiple_vars)
 {
-   BSTM::WTransactionLocalValue<int> value1;
-   BSTM::WTransactionLocalValue<int> value2;
+   WSTM::WTransactionLocalValue<int> value1;
+   WSTM::WTransactionLocalValue<int> value2;
 
-   BSTM::Atomically (
-      [&](BSTM::WAtomic& at)
+   WSTM::Atomically (
+      [&](WSTM::WAtomic& at)
       {
          const auto val1 = 556193;
          value1.Set (val1, at);
@@ -2634,12 +2662,12 @@ namespace
 
 BOOST_AUTO_TEST_CASE (child_transaction)
 {
-   BSTM::WTransactionLocalValue<int> value;
+   WSTM::WTransactionLocalValue<int> value;
    const auto parentVal = 910848;
    const auto childVal = 516048;
 
 
-   auto Child1 = BSTM::RunAtomically ([&](BSTM::WAtomic& at)
+   auto Child1 = WSTM::RunAtomically ([&](WSTM::WAtomic& at)
                                       {
                                          BOOST_REQUIRE (value.Get (at));
                                          BOOST_CHECK_EQUAL (*value.Get (at), parentVal);
@@ -2651,7 +2679,7 @@ BOOST_AUTO_TEST_CASE (child_transaction)
                                          //abort the transaction
                                          throw WAbortTestTransaction ();
                                       });
-   auto Child2 = BSTM::RunAtomically ([&](BSTM::WAtomic& at)
+   auto Child2 = WSTM::RunAtomically ([&](WSTM::WAtomic& at)
                                       {
                                          BOOST_REQUIRE (value.Get (at));
                                          BOOST_CHECK_EQUAL (*value.Get (at), parentVal);
@@ -2660,8 +2688,8 @@ BOOST_AUTO_TEST_CASE (child_transaction)
                                          BOOST_REQUIRE (value.Get (at));
                                          BOOST_CHECK_EQUAL (*value.Get (at), childVal);
                                       });
-   BSTM::Atomically (
-      [&](BSTM::WAtomic& at)
+   WSTM::Atomically (
+      [&](WSTM::WAtomic& at)
       {
          value.Set (parentVal, at);
 
@@ -2687,9 +2715,9 @@ BOOST_AUTO_TEST_CASE (child_transaction)
 
 BOOST_AUTO_TEST_CASE (flag)
 {
-   BSTM::WTransactionLocalFlag flag;
-   BSTM::Atomically (
-      [&](BSTM::WAtomic& at)
+   WSTM::WTransactionLocalFlag flag;
+   WSTM::Atomically (
+      [&](WSTM::WAtomic& at)
       {
          //shoudl be "not set" at start of transaction
          BOOST_CHECK (!flag.TestAndSet (at));
@@ -2700,8 +2728,8 @@ BOOST_AUTO_TEST_CASE (flag)
       });
 
    //make sure the value doens't carry over to another transaction
-   BSTM::Atomically (
-      [&](BSTM::WAtomic& at)
+   WSTM::Atomically (
+      [&](WSTM::WAtomic& at)
       {
          //shoudl be "not set" at start of transaction
          BOOST_CHECK (!flag.TestAndSet (at));
@@ -2712,24 +2740,24 @@ BOOST_AUTO_TEST_CASE (flag)
       });
 
    //make sure that a value set in the parent is seen by the child
-   auto Child1 = BSTM::RunAtomically ([&](BSTM::WAtomic& at)
+   auto Child1 = WSTM::RunAtomically ([&](WSTM::WAtomic& at)
                                       {
                                          BOOST_CHECK (flag.TestAndSet (at));
                                       });
-   BSTM::Atomically (
-      [&](BSTM::WAtomic& at)
+   WSTM::Atomically (
+      [&](WSTM::WAtomic& at)
       {
          flag.TestAndSet (at);
          Child1 ();
       });
 
    //make sure that value set in child is seen by the parent
-   auto Child2 = BSTM::RunAtomically ([&](BSTM::WAtomic& at)
+   auto Child2 = WSTM::RunAtomically ([&](WSTM::WAtomic& at)
                                       {
                                          BOOST_CHECK (!flag.TestAndSet (at));
                                       });
-   BSTM::Atomically (
-      [&](BSTM::WAtomic& at)
+   WSTM::Atomically (
+      [&](WSTM::WAtomic& at)
       {
          Child2 ();
          BOOST_CHECK (flag.TestAndSet (at));

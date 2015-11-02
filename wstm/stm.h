@@ -15,7 +15,6 @@
 #include <boost/format.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/shared_mutex.hpp>
-#include <boost/chrono/chrono.hpp>
 
 #include <chrono>
 
@@ -90,13 +89,13 @@ namespace WSTM
 
    struct WTimeArg
    {
-      using time_point = boost::chrono::steady_clock::time_point;
+      using time_point = std::chrono::steady_clock::time_point;
       
       WTimeArg ();
-      explicit WTimeArg (const time_point& t);
-      template <typename Duration_t>
-      explicit WTimeArg (const Duration_t& d):
-         m_time_o (boost::chrono::system_clock::now () + d)
+      WTimeArg (const time_point& t);
+      template <typename Rep_t, typename Period_t>
+      WTimeArg (const std::chrono::duration<Rep_t, Period_t>& d):
+         m_time_o (std::chrono::steady_clock::now () + std::chrono::duration_cast<std::chrono::steady_clock::duration>(d))
       {}
 
       static WTimeArg Unlimited ();
@@ -104,7 +103,7 @@ namespace WSTM
 
       bool operator<(const WTimeArg& t) const;
       
-      boost::optional<boost::chrono::steady_clock::time_point> m_time_o;
+      boost::optional<std::chrono::steady_clock::time_point> m_time_o;
    };
 
    namespace Internal
@@ -156,7 +155,7 @@ namespace WSTM
          virtual bool Validate (const WValueBase& val) const;
          virtual std::shared_ptr<WValueBase> Commit (const std::shared_ptr<WValueBase>& val_p);
          
-         explicit WVarCore(WValue<Type_t>* val_p);
+         explicit WVarCore(std::shared_ptr<WValue<Type_t>>&& val_p);
 
          typename std::shared_ptr<WValue<Type_t>> m_value_p;
       };
@@ -175,13 +174,13 @@ namespace WSTM
          const auto oldPtr_p = static_cast<const WValue<Type_t>*>(old_p.get ());
          (void) oldPtr_p;
 #endif
-         m_value_p = boost::static_pointer_cast<WValue<Type_t> >(val_p);
+         m_value_p = std::static_pointer_cast<WValue<Type_t> >(val_p);
          return old_p;
       }
          
       template<typename Type_t>
-      WVarCore<Type_t>::WVarCore(WValue<Type_t>* val_p):
-         m_value_p (val_p)
+      WVarCore<Type_t>::WVarCore(std::shared_ptr<WValue<Type_t>>&& val_p):
+         m_value_p (std::move (val_p))
       {}
       
       // void WSTM_LIBAPI RunOrElse(WAtomicOp op1, WAtomicOp op2, WAtomic& at);
@@ -278,13 +277,7 @@ namespace WSTM
     * limit is hit a WRetryTimeoutException will be thrown. Pass boost::not_a_date_time to have no
     * limit, this is the deafult.
     */
-   struct WSTM_CLASSAPI WMaxRetryWait
-   {
-      WMaxRetryWait ();
-      WMaxRetryWait (const WTimeArg& t);
-      
-      WTimeArg m_timeout;
-   };
+   FIND_ARG__MAKE_ARG_TYPE (WTimeArg, WMaxRetryWait, WTimeArg ());
 
    /**
       Functions passed to STM::atomically must take a reference
@@ -512,29 +505,6 @@ namespace WSTM
 
    namespace Internal
    {
-      /*
-       * We need our own result_of template because vs2010
-       * std::result_of and boost 1.47 boost::result_of cannot handle
-       * c++ lambda objects. This is probably due to vs2010 lacking
-       * variadic templates (GCC can handle lambdas in result_of, but
-       * it needs variadic templates to implement it).
-       */
-      template <typename Op_t>
-      struct WAtomicOpResultType
-      {
-         typedef
-         decltype (boost::declval<Op_t>() (boost::declval<WAtomic>()))
-         type;
-      };
-
-      template <typename Op_t>
-      struct WInconsistentOpResultType
-      {
-         typedef
-         decltype (boost::declval<Op_t>() (boost::declval<WInconsistent>()))
-         type;
-      };
-
       template <typename Trans_t, typename Op_t, typename Result_t, bool IsRef>
       struct WValOp;
 
@@ -682,24 +652,42 @@ namespace WSTM
 
 		@return The result of op.
    */
-   template <typename Op_t, typename ... Args>
-   auto Atomically(const Op_t& op, const Args&... args) -> 
-      std::enable_if_t<std::is_same<void, decltype (op (std::declval<WAtomic>()))>::value, void>
+   template <typename Op_t, typename ... Options_t>
+   auto Atomically (const Op_t& op, const Options_t&... options) -> 
+      typename std::enable_if<std::is_same<void, decltype (op (std::declval<WAtomic>()))>::value, void>::type
    {
-      WAtomic::AtomicallyImpl(std::cref(op), findArg<WMaxConflicts>(args...), findArg<WMaxRetries>(args...), findArg<WMaxRetryWait>(args...));
+      WAtomic::AtomicallyImpl(std::cref(op), findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
    }
-
-   template <typename Op_t, typename ... Args>
-   auto Atomically(const Op_t& op, const Args&... args) -> 
-      std::enable_if_t<!std::is_same<void, decltype (op (std::declval<WAtomic>()))>::value, decltype (op (std::declval<WAtomic>()))>
+                   
+   template <typename Op_t, typename ... Options_t>
+   auto Atomically (const Op_t& op, const Options_t&... options) -> 
+      typename std::enable_if<!std::is_same<void, decltype (op (std::declval<WAtomic>()))>::value, decltype (op (std::declval<WAtomic>()))>::type
    {
+#ifdef WIN32
+#pragma warning (push)
+#pragma warning (disable: 4239)
       typedef decltype (op (std::declval<WAtomic>())) ResultType;
+#pragma warning (pop)
+#endif //WIN32
       Internal::WValOp<WAtomic, Op_t, ResultType, std::is_reference<ResultType>::value> val_op(op);
-      WAtomic::AtomicallyImpl(std::ref(val_op), findArg<WMaxConflicts>(args...), findArg<WMaxRetries>(args...), findArg<WMaxRetryWait>(args...));
+      WAtomic::AtomicallyImpl(std::ref(val_op), findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
       return val_op.GetResult();
    }   
    //!}
 
+   /**
+    * Creates a function object that runs the given function in a transaction with the given
+    * options. 
+    */
+   template<typename Func_t, typename ... Options_t>
+   auto RunAtomically (const Func_t& f, const Options_t& ... options)
+   {
+      return [=]()
+      {
+         return Atomically (f, options...);
+      };
+   }
+   
    /**
       Returns true if the current thread is running under
       STM::atomically.
@@ -780,26 +768,22 @@ namespace WSTM
       function running under an atomic transaction.
    */
    template <typename Op_t>
-   void Inconsistently(const Op_t& op,
-                       NO_ATOMIC,
-                       typename
-                       boost::enable_if<
-                       boost::is_same<void,
-                       typename Internal::WInconsistentOpResultType<Op_t>::type> >::type* = 0)
+   auto Inconsistently(const Op_t& op, NO_ATOMIC) ->
+      typename std::enable_if<std::is_same<void, decltype (op (std::declval<WInconsistent>()))>::value, void>::type
    {
       WInconsistent::InconsistentlyImpl(std::cref(op));
    }
 
    template <typename Op_t>
-   typename Internal::WInconsistentOpResultType<Op_t>::type
-   Inconsistently(const Op_t& op,
-                  NO_ATOMIC,
-                  typename
-                  boost::disable_if<
-                  boost::is_same<void,
-                  typename Internal::WInconsistentOpResultType<Op_t>::type> >::type* = 0)
+   auto Inconsistently(const Op_t& op, NO_ATOMIC) ->
+      typename std::enable_if<!std::is_same<void, decltype (op (std::declval<WInconsistent>()))>::value, decltype (op (std::declval<WInconsistent>()))>::type
    {
-      typedef typename Internal::WInconsistentOpResultType<Op_t>::type ResultType;
+#ifdef WIN32
+#pragma warning (push)
+#pragma warning (disable: 4239)
+      typedef decltype (op (std::declval<WInconsistent>())) ResultType;
+#pragma warning (pop)
+#endif //WIN32
       Internal::WValOp<WInconsistent, Op_t, ResultType, std::is_reference<ResultType>::value> val_op(op);
       WInconsistent::InconsistentlyImpl(std::ref(val_op));
       return val_op.GetResult();
@@ -914,7 +898,7 @@ namespace WSTM
       Type GetInconsistent(WInconsistent& ins) const
       {
          WReadLockGuard<WInconsistent> lock (ins);
-         const typename Internal::WValue<Type_t>::ConstPtr val_p = m_core_p->m_value_p;
+         const std::shared_ptr<const Internal::WValue<Type_t>> val_p = m_core_p->m_value_p;
          lock.Unlock ();
          return val_p->m_value;
       }

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.3.2)
 project(wyatt-stm)
 
 if (APPLE OR WIN32)
-    set(Boost_USE_STATIC_LIBS TRUE)
+  set(Boost_USE_STATIC_LIBS ON)
 endif()
 find_package(Boost 1.57 REQUIRED COMPONENTS)
 
@@ -23,6 +23,7 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
      if (NOT DEFINED MSVC_MBCS)
         add_definitions(-DUNICODE -D_UNICODE)
      endif()
+     add_definitions(-DWIN32)
 endif()
 if (NOT CONFIGURED_ONCE)
     set(CMAKE_CXX_FLAGS "${warnings}"
@@ -31,13 +32,24 @@ if (NOT CONFIGURED_ONCE)
         CACHE STRING "Flags used by the compiler during all build types." FORCE)
 endif()
 
-include_directories(wstm STM SYSTEM ${Boost_INCLUDE_DIRS})
+include_directories(wstm SYSTEM ${Boost_INCLUDE_DIRS})
+link_directories(${Boost_LIBRARY_DIRS})
 
 #use this when all the files are fixed
-#file(GLOB SOURCES "src/*.cpp")
+#file(GLOB WSTM_SOURCES "src/*.cpp")
 
 #for now add source files by hand
-set(SOURCES src/stm.cpp)
+set(WSTM_SOURCES src/stm.cpp)
 
-add_library(wstm ${SOURCES})
+add_library(wstm ${WSTM_SOURCES})
 set_property(TARGET wstm PROPERTY CXX_STANDARD 14)
+
+#use this when all the files are fixed
+#file(GLOB UNIT_TEST_SOURCES "Testing/unit-tests/*.cpp")
+
+#for now add source files by hand
+set(UNIT_TEST_SOURCES Testing/unit-tests/main.cpp Testing/unit-tests/stm_test.cpp)
+
+add_executable(unit_tests ${UNIT_TEST_SOURCES})
+set_property(TARGET unit_tests PROPERTY CXX_STANDARD 14)
+target_link_libraries(unit_tests wstm)
