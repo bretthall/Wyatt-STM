@@ -6,8 +6,6 @@
  Copyright (c) 2002-2013. All rights reserved.
 ****************************************************************************/
 
-#pragma warning (disable: 4244)
-
 #include "stm.h"
 
 #pragma warning (push)

@@ -6,11 +6,9 @@
  Copyright (c) 2002-2010. All rights reserved.
 ****************************************************************************/
 
-#include "StdAfx.h"
-
 #include "channel.h"
 
-namespace bss { namespace thread { namespace STM
+namespace WSTM
 {
    WChannelError::WChannelError (const std::string& msg):
       m_msg (msg)
@@ -26,15 +24,15 @@ namespace bss { namespace thread { namespace STM
       namespace
       {
          int s_numNodes = 0;
-         boost::mutex s_numNodesMutex;
+         std::mutex s_numNodesMutex;
          size_t s_nodeNum = 1;
-         typedef std::map<WChannelCoreNodeBase*, size_t> NodeMap;
+         using NodeMap = std::map<WChannelCoreNodeBase*, size_t>;
          NodeMap s_nodeNums;
       }
 
       void IncrementNumNodes (WChannelCoreNodeBase* node_p)
       {
-         boost::lock_guard<boost::mutex> lock (s_numNodesMutex);
+         std::lock_guard<std::mutex> lock (s_numNodesMutex);
          ++s_numNodes;
          s_nodeNums[node_p] = s_nodeNum;
          ++s_nodeNum;
@@ -42,7 +40,7 @@ namespace bss { namespace thread { namespace STM
       
       void DecrementNumNodes (WChannelCoreNodeBase* node_p)
       {
-         boost::lock_guard<boost::mutex> lock (s_numNodesMutex);
+         std::lock_guard<std::mutex> lock (s_numNodesMutex);
          --s_numNodes;
          assert (s_numNodes >= 0);
          s_nodeNums[node_p] = 0;
@@ -50,15 +48,15 @@ namespace bss { namespace thread { namespace STM
 
       int GetNumNodes ()
       {
-         boost::lock_guard<boost::mutex> lock (s_numNodesMutex);
+         std::lock_guard<std::mutex> lock (s_numNodesMutex);
          return s_numNodes;
       }
 
       std::vector<size_t> GetExistingNodeNums ()
       {
-         boost::lock_guard<boost::mutex> lock (s_numNodesMutex);
+         std::lock_guard<std::mutex> lock (s_numNodesMutex);
          std::vector<size_t> nums;
-         BOOST_FOREACH (const NodeMap::value_type& val, s_nodeNums)
+         for (const auto& val: s_nodeNums)
          {
             if (val.second > 0)
             {
@@ -70,7 +68,7 @@ namespace bss { namespace thread { namespace STM
 
       size_t GetMaxNodeNum ()
       {
-         boost::lock_guard<boost::mutex> lock (s_numNodesMutex);
+         std::lock_guard<std::mutex> lock (s_numNodesMutex);
          return s_nodeNum;
       }
 
@@ -100,4 +98,4 @@ namespace bss { namespace thread { namespace STM
 #endif //WATCH_MEMORY
    }
    
-}}}
+}

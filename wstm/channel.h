@@ -8,49 +8,37 @@
 
 #pragma once
 
-#include "BSS/wtcbss.h"
-#include "BSS/Common/Pointers.h"
-#include "BSS/Thread/STM/stm.h"
-#include "BSS/Thread/ThreadSafeSignal.h"
-
-#ifdef WIN32
-#pragma warning (push)
-#pragma warning (disable: 4127 4239 4244 4265 4503 4512 4640 6011)
-#endif
+#include "exports.h"
+#include "stm.h"
 
 #include <boost/optional.hpp>
-#include <boost/shared_ptr.hpp>
-#include <boost/optional/optional.hpp>
-#include <boost/function.hpp>
+#include <boost/signals2.hpp>
 
 #include <vector>
+#include <deque>
 
-namespace bss { namespace thread { namespace STM
+namespace WSTM
 {
    namespace  Internal
    {
       struct WChannelCoreNodeBase
       {};
 
-      void BSS_LIBAPI IncrementNumNodes (WChannelCoreNodeBase* node_p);
-      void BSS_LIBAPI DecrementNumNodes (WChannelCoreNodeBase* node_p);
-      int BSS_LIBAPI GetNumNodes ();
-      std::vector<size_t> BSS_LIBAPI GetExistingNodeNums ();
-      size_t BSS_LIBAPI GetMaxNodeNum ();
+      void WSTM_LIBAPI IncrementNumNodes (WChannelCoreNodeBase* node_p);
+      void WSTM_LIBAPI DecrementNumNodes (WChannelCoreNodeBase* node_p);
+      int WSTM_LIBAPI GetNumNodes ();
+      std::vector<size_t> WSTM_LIBAPI GetExistingNodeNums ();
+      size_t WSTM_LIBAPI GetMaxNodeNum ();
       
       template <typename Data_t>
       struct WChannelCore
       {
-         DEFINE_POINTERS (WChannelCore);
-
-         typedef boost::function<Data_t (WAtomic&)> ReaderInitFunc;
+         using ReaderInitFunc = std::function<Data_t (WAtomic&)>;
          
          struct WNode : public WChannelCoreNodeBase
          {
-            DEFINE_POINTERS (WNode);
-
             Data_t m_data;
-            WVar<Ptr> m_next_v;
+            WVar<std::shared_ptr<WNode>> m_next_v;
             bool m_initial;
                
             WNode (const Data_t& data):
@@ -60,9 +48,9 @@ namespace bss { namespace thread { namespace STM
                IncrementNumNodes (this);
             }
 
-            static Ptr CreateInitialNode (const Data_t& data, const Ptr& next_p, WAtomic& at)
+            static std::shared_ptr<WNode> CreateInitialNode (const Data_t& data, const std::shared_ptr<WNode>& next_p, WAtomic& at)
             {
-               auto node_p = boost::make_shared<WNode> (data);
+               auto node_p = std::make_shared<WNode> (data);
                node_p->m_next_v.Set (next_p, at);
                node_p->m_initial = true;
                return node_p;
@@ -80,28 +68,28 @@ namespace bss { namespace thread { namespace STM
             }
          };
 
-         typedef bss::thread::ThreadSafeSignal::WSignal<void ()> WWriteSignal;
+         using WWriteSignal = boost::signals2::signal<void ()>;
 
-         boost::shared_ptr<WWriteSignal> m_writeSignal_p;
-         WVar<boost::shared_ptr<WNode>> m_next_v;
+         std::shared_ptr<WWriteSignal> m_writeSignal_p;
+         WVar<std::shared_ptr<WNode>> m_next_v;
          ReaderInitFunc m_readerInit;
          WVar<int> m_numReaders_v;
          
          WChannelCore (ReaderInitFunc readerInit):
-            m_writeSignal_p (boost::make_shared<WWriteSignal>()),
-            m_next_v (boost::make_shared<WNode> ()),
+            m_writeSignal_p (std::make_shared<WWriteSignal>()),
+            m_next_v (std::make_shared<WNode> ()),
             m_readerInit (readerInit),
             m_numReaders_v (0)
          {}
 
          struct WEmitSignal
          {
-            boost::weak_ptr<WWriteSignal> m_sig_p;
-            WEmitSignal (const boost::shared_ptr<WWriteSignal>& sig_p): m_sig_p (sig_p) {}
+            std::weak_ptr<WWriteSignal> m_sig_p;
+            WEmitSignal (const std::shared_ptr<WWriteSignal>& sig_p): m_sig_p (sig_p) {}
 
             void operator () ()
             {
-               boost::shared_ptr<WWriteSignal> sig_p = m_sig_p.lock ();
+               std::shared_ptr<WWriteSignal> sig_p = m_sig_p.lock ();
                if (sig_p)
                {
                   (*sig_p) ();
@@ -121,7 +109,7 @@ namespace bss { namespace thread { namespace STM
                return;
             }
 
-            auto newNode_p = boost::make_shared<WNode> (data);
+            auto newNode_p = std::make_shared<WNode> (data);
             auto cur_p = m_next_v.Get (at);
             if (cur_p)
             {
@@ -131,7 +119,7 @@ namespace bss { namespace thread { namespace STM
             at.After (WEmitSignal (m_writeSignal_p));
          }
 
-         boost::shared_ptr<WNode> AddReader (WAtomic& at)
+         std::shared_ptr<WNode> AddReader (WAtomic& at)
          {
             m_numReaders_v.Set (m_numReaders_v.Get (at) + 1, at);
             
@@ -169,7 +157,7 @@ namespace bss { namespace thread { namespace STM
    /**
     * Base class for exceptions thrown by WChannel functions.
     */
-   struct BSS_CLASSAPI WChannelError
+   struct WSTM_CLASSAPI WChannelError
    {
       WChannelError (const std::string& msg);
       std::string m_msg;
@@ -178,7 +166,7 @@ namespace bss { namespace thread { namespace STM
    /**
       Exception thrown if an invalid channel is used.
    */
-   struct BSS_CLASSAPI WInvalidChannelError : public WChannelError
+   struct WSTM_CLASSAPI WInvalidChannelError : public WChannelError
    {
       WInvalidChannelError ();
    };
@@ -192,7 +180,7 @@ namespace bss { namespace thread { namespace STM
          
       @param Data_t The type of data sent through the channel. This
       type must be copyable. Normally this should be a
-      boost::shared_ptr<const Val_t> where Val_t is the actual data
+      std::shared_ptr<const Val_t> where Val_t is the actual data
       type being sent. Note that all readers of the channel will get
       the same copy of the data, so if the data is mutable you could
       run into problems.
@@ -204,13 +192,13 @@ namespace bss { namespace thread { namespace STM
       template <typename> friend class WChannelWriter;
       template <typename> friend class WChannelReader;
 
-      typedef Internal::WChannelCore<Data_t> Core;
-      typedef typename Core::Ptr CorePtr;
+      using Core = Internal::WChannelCore<Data_t>;
+      using CorePtr = std::shared_ptr<Core>;
       CorePtr m_core_p;
          
    public:
       //!The type of data sent through this channel.
-      typedef Data_t Data;
+      using Data = Data_t;
 
       /**
        * Intial message generation function. This function will be
@@ -220,7 +208,7 @@ namespace bss { namespace thread { namespace STM
        * message that the new WChannelReader object sees, only the new
        * WChannelReader object will see this message.
        */
-      typedef boost::function<Data_t (WAtomic&)> WReaderInitFunc;
+      using WReaderInitFunc = std::function<Data_t (WAtomic&)>;
          
       /**
          Creates an empty channel.
@@ -233,19 +221,16 @@ namespace bss { namespace thread { namespace STM
          readers.
       */
       WChannel (WReaderInitFunc m_readerInit = WReaderInitFunc ()):
-         m_core_p (stm_new Internal::WChannelCore<Data_t> (m_readerInit)),
-         writeSignal (* (m_core_p->m_writeSignal_p))
+         m_core_p (std::make_shared<Internal::WChannelCore<Data_t>> (m_readerInit))
       {}
 
       WChannel (WChannel&& c):
-         m_core_p (std::move (c.m_core_p)),
-         writeSignal (* (m_core_p->m_writeSignal_p))
+         m_core_p (std::move (c.m_core_p))
       {}
 
       WChannel& operator=(WChannel&& c)
       {
          m_core_p = std::move (c.m_core_p);
-         writeSignal.Init (*(m_core_p->m_writeSignal_p));
          return *this;
       }
       
@@ -296,8 +281,12 @@ namespace bss { namespace thread { namespace STM
          need to wait for a channel to be written to you are better
          off using WChannelReader::RetryIfEmpty.
       */
-      typedef bss::thread::ThreadSafeSignal::WSignal<void ()> WWriteSignal;
-      bss::thread::ThreadSafeSignal::WSignalConnector<WWriteSignal> writeSignal;
+      using WWriteSignal = boost::signals2::signal<void ()>;
+      template <typename Handler_t>
+      auto ConnectToWriteSignal (Handler_t&& h)
+      {
+         return m_core_p->m_writeSignal_p->connect (h);
+      }
       //@}
    };
 
@@ -320,7 +309,7 @@ namespace bss { namespace thread { namespace STM
       template <typename> friend class WChannelReader;
 
    public:
-      typedef Data_t Data;
+      using Data = Data_t;
          
       /**
          Creates an uninitialized object.  Do not try to use the
@@ -392,7 +381,7 @@ namespace bss { namespace thread { namespace STM
       }
       void Init (const WReadOnlyChannel& chan, WAtomic& at)
       {
-         Internal::WChannelCore<Data_t>::Ptr chan_p = chan.m_core_v.Get (at).lock ();
+         auto chan_p = chan.m_core_v.Get (at).lock ();
          m_core_v.Set (chan_p, at);
       }
       //!}
@@ -437,14 +426,13 @@ namespace bss { namespace thread { namespace STM
          longer exists or the WReadOnlyChannel was never
          initialized.
       */
-      template <typename Func_t>
-      typename WChannel<Data>::WWriteSignal::Connection
-      ConnectToWriteSignal (Func_t func, NO_ATOMIC)
+      template <typename Handler_t>
+      auto ConnectToWriteSignal (Handler_t&& h, NO_ATOMIC)
       {
-         Internal::WChannelCore<Data_t>::Ptr core_p = m_core_v.GetReadOnly ().lock ();
+         auto core_p = m_core_v.GetReadOnly ().lock ();
          if (core_p)
          {
-            return core_p->m_writeSignal_p->Connect (func);
+            return core_p->m_writeSignal_p->connect (h);
          }
          else
          {
@@ -453,7 +441,7 @@ namespace bss { namespace thread { namespace STM
       }
       
    private:
-      typedef boost::weak_ptr<Internal::WChannelCore<Data_t>> CoreWPtr;
+      typedef std::weak_ptr<Internal::WChannelCore<Data_t>> CoreWPtr;
       WVar<CoreWPtr> m_core_v;
    };
 
@@ -470,10 +458,10 @@ namespace bss { namespace thread { namespace STM
    template <typename Data_t>
    class WChannelWriter
    {
-      typedef Internal::WChannelCore<Data_t> Core;
-      typedef typename Core::Ptr CorePtr;
+      using Core = Internal::WChannelCore<Data_t>;
+      using CorePtr = std::shared_ptr<Core>;
    public:
-      typedef Data_t Data;
+      using Data = Data_t;
          
       /**
          Creates an invalid WChannelWriter object.  Use init or
@@ -579,7 +567,7 @@ namespace bss { namespace thread { namespace STM
       }
          
    private:
-      boost::weak_ptr<Core> m_core_p;
+      std::weak_ptr<Core> m_core_p;
    };
 
    /**
@@ -595,23 +583,23 @@ namespace bss { namespace thread { namespace STM
         
       @param Data_t The type of data sent through the
       channel. This type must be copyable. Normally this should
-      be a boost::shared_ptr<const Val_t> where Val_t is the
+      be a std::shared_ptr<const Val_t> where Val_t is the
       actual data type being sent.
    */
    template <typename Data_t>
    class WChannelReader
    {
-      typedef typename Internal::WChannelCore<Data_t>::WNode Node;
+      using Node = typename Internal::WChannelCore<Data_t>::WNode;
 
    public:
       //!The type of data read from the channel.
-      typedef Data_t Data;
+      using Data = Data_t;
 
       /**
          Data type returned by some read operations.  This will be
          empty if the read timed out.
       */
-      typedef boost::optional<Data> DataOpt;
+      using DataOpt = boost::optional<Data>;
 
       /**
        * Desctructor. This is virtual so that we can do RTTI on WChannelReader objects (this needs
@@ -628,7 +616,7 @@ namespace bss { namespace thread { namespace STM
          exception.
       */
       WChannelReader ():
-         m_data_p (new WData)
+         m_data_p (std::make_unique<WData>())
       {}
 
       /**
@@ -637,7 +625,7 @@ namespace bss { namespace thread { namespace STM
          @param ch The channel to read messages from.
       */
       WChannelReader (const WChannel<Data>& ch):
-         m_data_p (new WData)
+         m_data_p (std::make_unique<WData>())
       {
          Init (ch);
       }
@@ -650,7 +638,7 @@ namespace bss { namespace thread { namespace STM
          @param at The transaction to create the reader within.
       */
       WChannelReader (const WChannel<Data>& ch, WAtomic& at):
-         m_data_p (new WData)
+         m_data_p (std::make_unique<WData>())
       {
          Init (ch, at);
       }
@@ -665,7 +653,7 @@ namespace bss { namespace thread { namespace STM
          initialized.
       */
       WChannelReader (const WReadOnlyChannel<Data>& ch):
-         m_data_p (new WData)
+                   m_data_p (std::make_unique<WData>())
       {
          Init (ch);
       }
@@ -682,7 +670,7 @@ namespace bss { namespace thread { namespace STM
          initialized.
       */
       WChannelReader (const WReadOnlyChannel<Data>& ch, WAtomic& at):
-         m_data_p (new WData)
+                   m_data_p (std::make_unique<WData>())
       {
          Init (ch, at);
       }
@@ -698,7 +686,7 @@ namespace bss { namespace thread { namespace STM
          received before the new reader was created.
       */
       WChannelReader (const WChannelReader& reader):
-         m_data_p (new WData)
+                   m_data_p (std::make_unique<WData>())
       {
          Atomically ([&](WAtomic& at){this->Copy (reader, at);});
       }
@@ -716,7 +704,7 @@ namespace bss { namespace thread { namespace STM
          @param at The transaction to create the reader within. 
       */
       WChannelReader (const WChannelReader& reader, WAtomic& at):
-         m_data_p (new WData)
+                   m_data_p (std::make_unique<WData>())
       {
          Copy (reader, at);
       }
@@ -881,7 +869,7 @@ namespace bss { namespace thread { namespace STM
 
          @throw WInvalidChannelError if the WChannelReader is not initialized.
       */
-      bool Wait (const WTimeArg& timeout = WTimeArg::UNLIMITED ())
+      bool Wait (const WTimeArg& timeout = WTimeArg::Unlimited ())
       {
          try
          {
@@ -904,7 +892,7 @@ namespace bss { namespace thread { namespace STM
 
          @throw WInvalidChannelError if the WChannelReader is not initialized.
       */
-      void RetryIfEmpty (WAtomic& at, const WTimeArg& timeout = WTimeArg::UNLIMITED ())
+      void RetryIfEmpty (WAtomic& at, const WTimeArg& timeout = WTimeArg::Unlimited ())
       {
          CorePtr core_p = m_data_p->m_core_v.Get (at);
          if (!core_p)
@@ -980,7 +968,7 @@ namespace bss { namespace thread { namespace STM
    private:
       class WDeadNodeQueue
       {
-         std::deque<boost::shared_ptr<Node>> m_nodes;
+         std::deque<std::shared_ptr<Node>> m_nodes;
 
       public:
          ~WDeadNodeQueue ()
@@ -993,27 +981,27 @@ namespace bss { namespace thread { namespace STM
             }
          }
 
-         void Push (const boost::shared_ptr<Node>& node_p)
+         void Push (const std::shared_ptr<Node>& node_p)
          {
             m_nodes.push_back (node_p);
          }
       };
 
-      WTransactionLocalValue<boost::shared_ptr<WDeadNodeQueue>> m_deadNodes;
+      WTransactionLocalValue<std::shared_ptr<WDeadNodeQueue>> m_deadNodes;
       
-      void SaveDeadNode (const boost::shared_ptr<Node>& node_p, WAtomic& at)
+      void SaveDeadNode (const std::shared_ptr<Node>& node_p, WAtomic& at)
       {
          //In order to avoid stack overflows when a lot of nodes are read in a single transaction we
          //need to capture the nodes in a deque that will be emptied iteratively when the transaction
          //is done.
-         auto deadNodes_p = boost::shared_ptr<WDeadNodeQueue>();
+         auto deadNodes_p = std::shared_ptr<WDeadNodeQueue>();
          if (auto deadNodes_pp = m_deadNodes.Get (at))
          {
             deadNodes_p = *deadNodes_pp;
          }
          else
          {
-            deadNodes_p = boost::make_shared<WDeadNodeQueue>();
+            deadNodes_p = std::make_shared<WDeadNodeQueue>();
             m_deadNodes.Set (deadNodes_p, at);
             //We need the following "After action" in order to force the dead nodes to stick around
             //long enough in the commit cycle to avoid the stack overflow
@@ -1040,7 +1028,7 @@ namespace bss { namespace thread { namespace STM
 
          @throw WInvalidChannelError if the WChannelReader is not initialized.
       */
-      DataOpt ReadRetry (WAtomic& at, const WTimeArg& timeout = WTimeArg::UNLIMITED ())
+      DataOpt ReadRetry (WAtomic& at, const WTimeArg& timeout = WTimeArg::Unlimited ())
       {
          CorePtr core_p = m_data_p->m_core_v.Get (at);
          if (!core_p)
@@ -1091,7 +1079,7 @@ namespace bss { namespace thread { namespace STM
 
          @throw WInvalidChannelError if the WChannelReader is not initialized.
       */
-      DataOpt Read (const WTimeArg& timeout = WTimeArg::UNLIMITED ())
+      DataOpt Read (const WTimeArg& timeout = WTimeArg::Unlimited ())
       {
          try
          {
@@ -1162,8 +1150,7 @@ namespace bss { namespace thread { namespace STM
       {
          const unsigned int MAX_CHANNEL_READ_ALL_CONFLICTS = 5;
 
-         return Atomically ([&](WAtomic& at){return ReadAll (at);},
-                            WMaxConflicts (MAX_CHANNEL_READ_ALL_CONFLICTS) & WConRes (WConflictResolution::RUN_LOCKED));
+         return Atomically ([&](WAtomic& at){return ReadAll (at);}, WMaxConflicts (MAX_CHANNEL_READ_ALL_CONFLICTS, WConflictResolution::RUN_LOCKED));
       }
    
       /**
@@ -1189,11 +1176,11 @@ namespace bss { namespace thread { namespace STM
       }
       
    private:
-      typedef typename Internal::WChannelCore<Data>::Ptr CorePtr;
+      using CorePtr = std::shared_ptr<Internal::WChannelCore<Data>>;
       
       struct WData
       {
-         WVar<boost::shared_ptr<Node>> m_cur_v;
+         WVar<std::shared_ptr<Node>> m_cur_v;
          
          //We keep a reference to the channel's core so that it
          //sticks around as long as we do.  That way
@@ -1223,7 +1210,7 @@ namespace bss { namespace thread { namespace STM
             //transaction. After the transaction ends we go through the container of node pointers
             //releasing each on its own in a loop so that the stack doesn't overflow.
             m_cur_v.Set (nullptr, at);
-            auto release_p = boost::make_shared<std::deque<boost::shared_ptr<Node>>>();
+            auto release_p = std::make_shared<std::deque<std::shared_ptr<Node>>>();
             while (cur_p)
             {
                release_p->push_back (cur_p);
@@ -1231,7 +1218,7 @@ namespace bss { namespace thread { namespace STM
             }
             at.After ([release_p]()
                       {
-                         BOOST_FOREACH (auto& cur_p, *release_p)
+                         for (auto& cur_p: *release_p)
                          {
                             cur_p = nullptr;
                          }
@@ -1255,7 +1242,7 @@ namespace bss { namespace thread { namespace STM
 
       void InitFromReadonlyChannel (const WReadOnlyChannel<Data>& ch, WAtomic& at)
       {
-         Internal::WChannelCore<Data>::Ptr core_p = ch.m_core_v.Get (at).lock ();
+         auto core_p = ch.m_core_v.Get (at).lock ();
          if (core_p)
          {
             m_data_p->Release (at);
@@ -1298,8 +1285,4 @@ namespace bss { namespace thread { namespace STM
    }
    //!}
    
-}}}
-
-#ifdef WIN32
-#pragma warning (pop)
-#endif
+}

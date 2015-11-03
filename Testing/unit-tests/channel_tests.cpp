@@ -6,40 +6,24 @@
  Copyright (c) 2002-2013. All rights reserved.
 ****************************************************************************/
 
-#include "StdAfx.h"
+#include "stm.h"
+#include "channel.h"
 
-#pragma warning (disable: 4244)
-
-#include "BSS/Thread/STM/Channel.h"
-
-#include "BSS/Common/SequenceBuilder.h"
-
-using bss::SequenceBuilder::seq;
-using bss::SequenceBuilder::vb;
-
-#pragma warning (push)
-#pragma warning (disable: 4127 4244 4265 4389 4503 4512 4640 6011)
 #include <boost/bind.hpp>
-#include <boost/foreach.hpp>
-#include <boost/shared_ptr.hpp>
 #include <boost/test/unit_test.hpp>
-#include <boost/thread/thread.hpp>
-using boost::thread;
 #include <boost/thread/barrier.hpp>
 using boost::barrier;
-#pragma warning (pop)
 
 #include <vector>
+#include <thread>
 
-using namespace bss;
-using namespace bss::thread;
-using namespace bss::thread::STM;
+using namespace  WSTM;
 
 BOOST_AUTO_TEST_SUITE (Channel)
 
 namespace
 {
-   typedef boost::shared_ptr<barrier> WBarrierPtr;
+   typedef std::shared_ptr<barrier> WBarrierPtr;
             
    struct WTestMsg
    {
@@ -55,10 +39,13 @@ namespace
       out << "WTestMsg (" << msg.m_code << ")";
       return out;
    }
-            
-   void HandleWrite (bool& gotSignal)
+   
+   auto HandleWrite (bool& gotSignal)
    {
-      gotSignal = true;
+      return [&gotSignal]() 
+      {
+         gotSignal = true;
+      };
    }
 }
 
@@ -81,17 +68,8 @@ BOOST_AUTO_TEST_CASE (test_write)
 
 BOOST_AUTO_TEST_CASE (test_writeAtomic)
 {
-   struct WAtomicWrite
-   {
-      typedef void result_type;
-      void operator () (WChannel<WTestMsg>& chan, WAtomic& at) const
-      {
-         BOOST_CHECK_NO_THROW (chan.Write (WTestMsg (1), at));                  
-      }
-   };
-
    WChannel<WTestMsg> chan;
-   Atomically (boost::bind (WAtomicWrite (), boost::ref (chan), _1));
+   Atomically ([&](WAtomic& at){BOOST_CHECK_NO_THROW (chan.Write (WTestMsg (1), at));});
 }
 
 BOOST_AUTO_TEST_CASE (test_writeSignal)
@@ -99,29 +77,21 @@ BOOST_AUTO_TEST_CASE (test_writeSignal)
    bool gotSignal = false;
    WChannel<WTestMsg> chan;
    WChannelReader<WTestMsg> reader (chan);//need reader, else signal not emitted
-   chan.writeSignal.Connect (boost::bind (HandleWrite, boost::ref (gotSignal)));
+   chan.ConnectToWriteSignal (HandleWrite (gotSignal));
    chan.Write (WTestMsg (1));
    BOOST_CHECK (gotSignal);
 
    gotSignal = false;
-   struct WAtomicWrite
-   {
-      static void Run (WChannel<WTestMsg>& chan, const WTestMsg& msg, WAtomic& at)
-      {
-         chan.Write (msg, at);
-      }
-   };
-   Atomically (boost::bind (WAtomicWrite::Run, boost::ref (chan), WTestMsg (2), _1));
+   Atomically ([&](WAtomic& at){chan.Write (WTestMsg (2), at);});
    BOOST_CHECK (gotSignal);
 
    gotSignal = false;
    bool gotSignal2 = false;
-   bss::thread::ThreadSafeSignal::WConnection conn =
-      chan.writeSignal.Connect (boost::bind (HandleWrite, boost::ref (gotSignal2)));
+   auto conn = chan.ConnectToWriteSignal (HandleWrite (gotSignal2));
    chan.Write (WTestMsg (1));
    BOOST_CHECK (gotSignal);
    BOOST_CHECK (gotSignal2);
-   conn.Disconnect ();
+   conn.disconnect ();
    gotSignal = false;
    gotSignal2 = false;            
    chan.Write (WTestMsg (1));
@@ -179,7 +149,7 @@ BOOST_AUTO_TEST_CASE (test_operatorBoolReadOnly)
    }
    BOOST_CHECK (!ro);
 
-   boost::shared_ptr<WReadOnlyChannel<int> > ro_p;
+   std::shared_ptr<WReadOnlyChannel<int> > ro_p;
    if (true)
    {
       WChannel<int> chan2;
@@ -194,30 +164,22 @@ BOOST_AUTO_TEST_CASE (test_writeSignalReadOnly)
    bool gotSignal = false;
    WChannel<WTestMsg> chan;
    WReadOnlyChannel<WTestMsg> roChan (chan);
-   roChan.ConnectToWriteSignal (boost::bind (HandleWrite, boost::ref (gotSignal)));
+   roChan.ConnectToWriteSignal (HandleWrite (gotSignal));
    WChannelReader<WTestMsg> reader (roChan);//need reader, else signal not emitted
    chan.Write (WTestMsg (1));
    BOOST_CHECK (gotSignal);
 
    gotSignal = false;
-   struct WAtomicWrite
-   {
-      static void Run (WChannel<WTestMsg>& chan, const WTestMsg& msg, WAtomic& at)
-      {
-         chan.Write (msg, at);
-      }
-   };
-   Atomically (boost::bind (WAtomicWrite::Run, boost::ref (chan), WTestMsg (2), _1));
+   Atomically ([&](WAtomic& at){chan.Write (WTestMsg (2), at);});
    BOOST_CHECK (gotSignal);            
 
    gotSignal = false;
    bool gotSignal2 = false;
-   bss::thread::ThreadSafeSignal::WConnection conn =
-      roChan.ConnectToWriteSignal (boost::bind (HandleWrite, boost::ref (gotSignal2)));
+   auto conn = roChan.ConnectToWriteSignal (HandleWrite (gotSignal2));
    chan.Write (WTestMsg (1));
    BOOST_CHECK (gotSignal);
    BOOST_CHECK (gotSignal2);
-   conn.Disconnect ();
+   conn.disconnect ();
    gotSignal = false;
    gotSignal2 = false;            
    chan.Write (WTestMsg (1));
@@ -277,7 +239,7 @@ BOOST_AUTO_TEST_CASE (test_operatorBoolWriter)
    }
    BOOST_CHECK (!w);
 
-   boost::shared_ptr<WChannelWriter<int> > w_p;
+   std::shared_ptr<WChannelWriter<int> > w_p;
    if (true)
    {
       WChannel<int> chan2;
@@ -293,7 +255,7 @@ BOOST_AUTO_TEST_CASE (test_writeWriter)
    WChannelWriter<int> w (chan);
    WChannelReader<int> r (chan); //need reader, else signal not emitted
    bool gotSignal = false;
-   chan.writeSignal.Connect (boost::bind (HandleWrite, boost::ref (gotSignal)));
+   chan.ConnectToWriteSignal (HandleWrite (gotSignal));
    BOOST_CHECK_NO_THROW (w.Write (0));
    BOOST_CHECK (gotSignal);
 }
@@ -304,15 +266,8 @@ BOOST_AUTO_TEST_CASE (test_writeAtomicWriter)
    WChannelWriter<int> w (chan);
    WChannelReader<int> r (chan); //need reader, else signal not emitted
    bool gotSignal = false;
-   chan.writeSignal.Connect (boost::bind (HandleWrite, boost::ref (gotSignal)));
-   struct WAtomicWrite
-   {
-      static void Run (WChannelWriter<int>& chan, const int msg, WAtomic& at)
-      {
-         chan.Write (msg, at);
-      }
-   };
-   Atomically (boost::bind (WAtomicWrite::Run, boost::ref (w), 0, _1));
+   chan.ConnectToWriteSignal (HandleWrite (gotSignal));
+   Atomically ([&](WAtomic& at){w.Write (0, at);});
    BOOST_CHECK (gotSignal);
 }
 
@@ -327,18 +282,14 @@ namespace
       BOOST_CHECK_THROW (reader.Read (), WInvalidChannelError);
       BOOST_CHECK_THROW (reader.ReadAll (), WInvalidChannelError);
 
-      struct WTest
-      {
-         static void run (WChannelReader<int>& reader, WAtomic& at)
-         {
-            BOOST_CHECK_THROW (reader.RetryIfEmpty (at), WInvalidChannelError);
-            BOOST_CHECK_THROW (reader.Peek (at), WInvalidChannelError);
-            BOOST_CHECK_THROW (reader.ReadAtomic (at), WInvalidChannelError);
-            BOOST_CHECK_THROW (reader.ReadRetry (at), WInvalidChannelError);
-            BOOST_CHECK_THROW (reader.ReadAll (at), WInvalidChannelError);
-         }
-      };
-      Atomically (boost::bind (WTest::run, boost::ref (reader), _1));
+      Atomically ([&](WAtomic& at)
+                  {
+                     BOOST_CHECK_THROW (reader.RetryIfEmpty (at), WInvalidChannelError);
+                     BOOST_CHECK_THROW (reader.Peek (at), WInvalidChannelError);
+                     BOOST_CHECK_THROW (reader.ReadAtomic (at), WInvalidChannelError);
+                     BOOST_CHECK_THROW (reader.ReadRetry (at), WInvalidChannelError);
+                     BOOST_CHECK_THROW (reader.ReadAll (at), WInvalidChannelError);
+                  });
    }
 }
 
@@ -369,18 +320,12 @@ BOOST_AUTO_TEST_CASE (test_channelCtor)
    WChannelReader<WTestMsg> reader (chan);
    TestReader (chan, reader, WTestMsg (774562));
             
-   struct WAtomicCtor
-   {
-      static WChannelReader<WTestMsg>
-      run (const WChannel<WTestMsg>& chan, WAtomic& at)
-      {
-         BOOST_CHECK_NO_THROW (WChannelReader<WTestMsg> reader (chan, at));
-         return WChannelReader<WTestMsg> (chan, at);
-      }
-   };
    WChannel<WTestMsg> chan2;            
-   WChannelReader<WTestMsg> reader2 =
-      Atomically (boost::bind (WAtomicCtor::run, boost::cref (chan2), _1));
+   auto reader2 = Atomically ([&](WAtomic& at)
+                              {
+                                 BOOST_CHECK_NO_THROW (WChannelReader<WTestMsg> (chan2, at));
+                                 return WChannelReader<WTestMsg> (chan2, at);
+                              });
    TestReader (chan2, reader2, WTestMsg (398528));
 }
 
@@ -394,30 +339,19 @@ BOOST_AUTO_TEST_CASE (test_readOnlyChannelCtor)
    BOOST_CHECK_NO_THROW (WChannelReader<WTestMsg> reader (ro));
    WChannelReader<WTestMsg> reader (ro);
    TestReader (chan, reader, WTestMsg (222343));
-               
-   struct WAtomicCtor
-   {
-      static WChannelReader<WTestMsg>
-      run (const WReadOnlyChannel<WTestMsg>& chan, const bool valid, WAtomic& at)
-      {
-         if (valid)
-         {
-            BOOST_CHECK_NO_THROW (WChannelReader<WTestMsg> reader (chan, at));
-            return WChannelReader<WTestMsg> (chan, at);
-         }
-         else
-         {
-            BOOST_CHECK_THROW (WChannelReader<WTestMsg> reader (chan, at), WInvalidChannelError);
-            return WChannelReader<WTestMsg> ();
-         }
-      }
-   };
+
    WReadOnlyChannel<WTestMsg> ro2;
-   Atomically (boost::bind (WAtomicCtor::run, boost::cref (ro2), false, _1));
+   Atomically ([&](WAtomic& at)
+               {
+                  BOOST_CHECK_THROW (WChannelReader<WTestMsg> (ro2, at), WInvalidChannelError);
+               });
    WChannel<WTestMsg> chan2;
    ro2.Init (chan2);
-   WChannelReader<WTestMsg> reader2 =
-      Atomically (boost::bind (WAtomicCtor::run, boost::cref (ro2), true, _1));
+   auto reader2 = Atomically ([&](WAtomic& at)
+                              {
+                                 BOOST_CHECK_NO_THROW (WChannelReader<WTestMsg>  (ro2, at));
+                                 return WChannelReader<WTestMsg> (ro2, at);
+                              });
    TestReader (chan2, reader2, WTestMsg (258384));
 }
 
@@ -434,23 +368,20 @@ BOOST_AUTO_TEST_CASE (test_copyCtor)
    WChannelReader<int> reader2 (original2);
    TestReader (chan2, reader2, 256245);
             
-   struct WAtomicCtor
-   {
-      static WChannelReader<int>
-      run (const WChannelReader<int>& orig, WAtomic& at)
+   auto AtomicCtor = [](const auto& orig)
       {
-         BOOST_CHECK_NO_THROW (WChannelReader<int> reader (orig, at));
-         return WChannelReader<int> (orig, at);
-      }
-   };
+         return [&](WAtomic& at)
+         {
+            BOOST_CHECK_NO_THROW (WChannelReader<int> (orig, at));
+            return WChannelReader<int> (orig, at);
+         };
+      };   
    WChannelReader<int> original3;
-   WChannelReader<int> reader3 =
-      Atomically (boost::bind (WAtomicCtor::run, boost::cref (original3), _1));
+   WChannelReader<int> reader3 = Atomically (AtomicCtor (original3));
    CheckUninitializedReader (reader3);
    WChannel<int> chan4;
    WChannelReader<int> original4 (chan4);
-   WChannelReader<int> reader4 =
-      Atomically (boost::bind (WAtomicCtor::run, boost::cref (original4), _1));
+   WChannelReader<int> reader4 = Atomically (AtomicCtor (original4));
    TestReader (chan4, reader4, 215995);
 }
          
@@ -657,17 +588,22 @@ BOOST_AUTO_TEST_CASE (test_readInitiallyEmpty)
    const int VAL = 1256;
    chan.Write (WTestMsg (VAL));
    Msg res = reader.Read ();
-   bool haveMsg = res;
-   BOOST_CHECK (haveMsg);
-   BOOST_CHECK_EQUAL (VAL, res->m_code);
+   BOOST_CHECK (res);
+   if (res)
+   {
+      BOOST_CHECK_EQUAL (VAL, res->m_code);
+   }
 
    const int VAL2 = 987;
    chan.Write (WTestMsg (VAL2));
    res = reader.Read ();
    BOOST_CHECK (res);
-   BOOST_CHECK_EQUAL (VAL2, res->m_code);
+   if (res)
+   {
+      BOOST_CHECK_EQUAL (VAL2, res->m_code);
+   }
 
-   res = reader.Read (boost::posix_time::milliseconds (0));
+   res = reader.Read (std::chrono::milliseconds (0));
    BOOST_CHECK (!res);
 }
 
@@ -691,7 +627,7 @@ BOOST_AUTO_TEST_CASE (test_readInitiallyFull)
    BOOST_CHECK (res);
    BOOST_CHECK_EQUAL (VAL2, res->m_code);
 
-   res = reader.Read (boost::posix_time::milliseconds (0));
+   res = reader.Read (std::chrono::milliseconds (0));
    BOOST_CHECK (!res);
 }
 
@@ -701,12 +637,12 @@ BOOST_AUTO_TEST_CASE (test_readTimeoutInitiallyEmpty)
             
    WChannel<WTestMsg> chan;
    WChannelReader<WTestMsg> reader (chan);
-   Msg res = reader.Read (boost::posix_time::milliseconds (1));
+   Msg res = reader.Read (std::chrono::milliseconds (1));
    BOOST_CHECK (!res);
 
    const int VAL = 4953;
    chan.Write (WTestMsg (VAL));
-   res = reader.Read (boost::posix_time::milliseconds (1));
+   res = reader.Read (std::chrono::milliseconds (1));
    BOOST_CHECK (res);
    BOOST_CHECK_EQUAL (VAL, res->m_code);
 }
@@ -719,12 +655,12 @@ BOOST_AUTO_TEST_CASE (test_readTimeoutInitiallyFull)
    const int INIT_VAL = 8397;
    chan.Write (WTestMsg (INIT_VAL));
    WChannelReader<WTestMsg> reader (chan);
-   Msg res = reader.Read (boost::posix_time::milliseconds (1));
+   Msg res = reader.Read (std::chrono::milliseconds (1));
    BOOST_CHECK (!res);
 
    const int VAL = 1445;
    chan.Write (WTestMsg (VAL));
-   res = reader.Read (boost::posix_time::milliseconds (1));
+   res = reader.Read (std::chrono::milliseconds (1));
    BOOST_CHECK (res);
    BOOST_CHECK_EQUAL (VAL, res->m_code);
 }
@@ -786,21 +722,21 @@ BOOST_AUTO_TEST_CASE (test_readRetryInitiallyEmpty)
    const int VAL = 97;
    chan.Write (WTestMsg (VAL));
    Msg res = Atomically (boost::bind (&WChannelReader<WTestMsg>::ReadRetry,
-                                      boost::ref (reader), _1, WTimeArg::UNLIMITED ()));
+                                      boost::ref (reader), _1, WTimeArg::Unlimited ()));
    BOOST_CHECK (res);
    BOOST_CHECK_EQUAL (VAL, res->m_code);
 
    const int VAL2 = 34754;
    chan.Write (WTestMsg (VAL2));
    res = Atomically (boost::bind (&WChannelReader<WTestMsg>::ReadRetry,
-                                  boost::ref (reader), _1, WTimeArg::UNLIMITED ()));
+                                  boost::ref (reader), _1, WTimeArg::Unlimited ()));
    BOOST_CHECK (res);
    BOOST_CHECK_EQUAL (VAL2, res->m_code);
 
    BOOST_CHECK_THROW (Atomically (boost::bind (&WChannelReader<WTestMsg>::ReadRetry,
                                                boost::ref (reader),
                                                _1,
-                                               boost::posix_time::milliseconds (0))),
+                                               std::chrono::milliseconds (0))),
                       WRetryTimeoutException);
 }
 
@@ -815,21 +751,21 @@ BOOST_AUTO_TEST_CASE (test_readRetryInitiallyFull)
    const int VAL = 2435;
    chan.Write (WTestMsg (VAL));
    Msg res = Atomically (boost::bind (&WChannelReader<WTestMsg>::ReadRetry,
-                                      boost::ref (reader), _1, WTimeArg::UNLIMITED ()));
+                                      boost::ref (reader), _1, WTimeArg::Unlimited ()));
    BOOST_CHECK (res);
    BOOST_CHECK_EQUAL (VAL, res->m_code);
 
    const int VAL2 = 908433;
    chan.Write (WTestMsg (VAL2));
    res = Atomically (boost::bind (&WChannelReader<WTestMsg>::ReadRetry,
-                                  boost::ref (reader), _1, WTimeArg::UNLIMITED ()));
+                                  boost::ref (reader), _1, WTimeArg::Unlimited ()));
    BOOST_CHECK (res);
    BOOST_CHECK_EQUAL (VAL2, res->m_code);
 
    BOOST_CHECK_THROW (Atomically (boost::bind (&WChannelReader<WTestMsg>::ReadRetry,
                                                boost::ref (reader),
                                                _1,
-                                               boost::posix_time::milliseconds (0))),
+                                               std::chrono::milliseconds (0))),
                       WRetryTimeoutException);
 }
 
@@ -837,18 +773,16 @@ BOOST_AUTO_TEST_CASE (test_readAllInitiallyEmpty)
 {
    WChannel<WTestMsg> chan;
    WChannelReader<WTestMsg> reader (chan);
-   const std::vector<WTestMsg> v1 =
-      seq (vb (WTestMsg (23423)) << WTestMsg (9876) << WTestMsg (293799));
-   BOOST_FOREACH (const WTestMsg& msg, v1)
+   const std::vector<WTestMsg> v1 = {WTestMsg (23423), WTestMsg (9876), WTestMsg (293799)};
+   for (const WTestMsg& msg: v1)
    {
       chan.Write (msg);
    }
    const std::vector<WTestMsg> res1 = reader.ReadAll ();
    BOOST_CHECK (res1 == v1);
             
-   const std::vector<WTestMsg> v2 =
-      seq (vb (WTestMsg (9745)) << WTestMsg (2431));
-   BOOST_FOREACH (const WTestMsg& msg, v2)
+   const std::vector<WTestMsg> v2 = {WTestMsg (9745), WTestMsg (2431)};
+   for (const WTestMsg& msg: v2)
    {
       chan.Write (msg);
    }
@@ -864,18 +798,16 @@ BOOST_AUTO_TEST_CASE (test_readAllInitiallyFull)
    WChannel<WTestMsg> chan;
    chan.Write (WTestMsg (4358));
    WChannelReader<WTestMsg> reader (chan);
-   const std::vector<WTestMsg> v1 =
-      seq (vb (WTestMsg (9735)) << WTestMsg (3245));
-   BOOST_FOREACH (const WTestMsg& msg, v1)
+   const std::vector<WTestMsg> v1 = {WTestMsg (9735), WTestMsg (3245)};
+   for (const WTestMsg& msg: v1)
    {
       chan.Write (msg);
    }
    const std::vector<WTestMsg> res1 = reader.ReadAll ();
    BOOST_CHECK (res1 == v1);
             
-   const std::vector<WTestMsg> v2 =
-      seq (vb (WTestMsg (987354)) << WTestMsg (5648) << WTestMsg (3875927));
-   BOOST_FOREACH (const WTestMsg& msg, v2)
+   const std::vector<WTestMsg> v2 = {WTestMsg (987354), WTestMsg (5648), WTestMsg (3875927)};
+   for (const WTestMsg& msg: v2)
    {
       chan.Write (msg);
    }
@@ -890,9 +822,8 @@ BOOST_AUTO_TEST_CASE (test_readAllAtomicInitiallyEmpty)
 {
    WChannel<WTestMsg> chan;
    WChannelReader<WTestMsg> reader (chan);
-   const std::vector<WTestMsg> v1 =
-      seq (vb (WTestMsg (23423)) << WTestMsg (9876) << WTestMsg (293799));
-   BOOST_FOREACH (const WTestMsg& msg, v1)
+   const std::vector<WTestMsg> v1 = {WTestMsg (23423), WTestMsg (9876), WTestMsg (293799)};
+   for (const WTestMsg& msg: v1)
    {
       chan.Write (msg);
    }
@@ -907,9 +838,8 @@ BOOST_AUTO_TEST_CASE (test_readAllAtomicInitiallyEmpty)
       Atomically (boost::bind (WAtomicReadAll::Run, boost::ref (reader), _1));
    BOOST_CHECK (res1 == v1);
             
-   const std::vector<WTestMsg> v2 =
-      seq (vb (WTestMsg (9745)) << WTestMsg (2431));
-   BOOST_FOREACH (const WTestMsg& msg, v2)
+   const std::vector<WTestMsg> v2 = {WTestMsg (9745), WTestMsg (2431)};
+   for (const WTestMsg& msg: v2)
    {
       chan.Write (msg);
    }
@@ -929,9 +859,8 @@ BOOST_AUTO_TEST_CASE (test_readAllAtomicInitiallyFull)
    WChannel<WTestMsg> chan;
    chan.Write (WTestMsg (4358));
    WChannelReader<WTestMsg> reader (chan);
-   const std::vector<WTestMsg> v1 =
-      seq (vb (WTestMsg (9735)) << WTestMsg (3245));
-   BOOST_FOREACH (const WTestMsg& msg, v1)
+   const std::vector<WTestMsg> v1 = {WTestMsg (9735), WTestMsg (3245)};
+   for (const WTestMsg& msg: v1)
    {
       chan.Write (msg);
    }
@@ -946,9 +875,8 @@ BOOST_AUTO_TEST_CASE (test_readAllAtomicInitiallyFull)
       Atomically (boost::bind (WAtomicReadAll::Run, boost::ref (reader), _1));
    BOOST_CHECK (res1 == v1);
             
-   const std::vector<WTestMsg> v2 =
-      seq (vb (WTestMsg (987354)) << WTestMsg (5648) << WTestMsg (3875927));
-   BOOST_FOREACH (const WTestMsg& msg, v2)
+   const std::vector<WTestMsg> v2 = {WTestMsg (987354), WTestMsg (5648), WTestMsg (3875927)};
+   for (const WTestMsg& msg: v2)
    {
       chan.Write (msg);
    }
@@ -1022,14 +950,14 @@ BOOST_AUTO_TEST_CASE (test_wait)
    {
       WWaitThread (int value) : m_value (value) {}
 
-      boost::shared_ptr<WChannelReader<int> > CreateChannelReader (WChannel<int>& chan, WAtomic& at)
+      std::shared_ptr<WChannelReader<int> > CreateChannelReader (WChannel<int>& chan, WAtomic& at)
       {
-         return boost::shared_ptr<WChannelReader<int> > (new WChannelReader<int> (chan, at));
+         return std::shared_ptr<WChannelReader<int> > (new WChannelReader<int> (chan, at));
       }
                
       void Run (WChannel<int>& chan, WBarrierPtr barrier_p)
       {
-         boost::shared_ptr<WChannelReader<int> > reader_p =
+         std::shared_ptr<WChannelReader<int> > reader_p =
             Atomically (boost::bind (&WWaitThread::CreateChannelReader,
                                      this,
                                      boost::ref (chan),
@@ -1038,7 +966,7 @@ BOOST_AUTO_TEST_CASE (test_wait)
          barrier_p->wait ();
          barrier_p->wait ();
          reader.Wait ();
-         Msg msg = reader.Read (boost::posix_time::milliseconds (0));
+         Msg msg = reader.Read (std::chrono::milliseconds (0));
          BOOST_CHECK (msg);
          m_value = msg.get ();
          barrier_p->wait ();
@@ -1054,13 +982,13 @@ BOOST_AUTO_TEST_CASE (test_wait)
    BOOST_CHECK_EQUAL (INIT_VALUE, thrObj.m_value);
    WBarrierPtr barrier_p (new barrier (2));
    WChannel<int> chan;
-   boost::thread thr (boost::bind (&WWaitThread::Run,
-                                   boost::ref (thrObj),
-                                   boost::ref (chan),
-                                   barrier_p));
+   std::thread thr (boost::bind (&WWaitThread::Run,
+                                 boost::ref (thrObj),
+                                 boost::ref (chan),
+                                 barrier_p));
    barrier_p->wait ();
    barrier_p->wait ();
-   boost::this_thread::sleep (boost::posix_time::milliseconds (100));
+   std::this_thread::sleep_for (std::chrono::milliseconds (100));
    chan.Write (VALUE);
    barrier_p->wait ();
    BOOST_CHECK_EQUAL (VALUE, thrObj.m_value);
@@ -1069,10 +997,10 @@ BOOST_AUTO_TEST_CASE (test_wait)
    //test write before wait starts
    thrObj.m_value = INIT_VALUE;
    const int VALUE2 = 59847;
-   boost::thread thr2 (boost::bind (&WWaitThread::Run,
-                                    boost::ref (thrObj),
-                                    boost::ref (chan),
-                                    barrier_p));
+   std::thread thr2 (boost::bind (&WWaitThread::Run,
+                                  boost::ref (thrObj),
+                                  boost::ref (chan),
+                                  barrier_p));
    barrier_p->wait ();
    chan.Write (VALUE2);
    barrier_p->wait ();
@@ -1097,9 +1025,9 @@ BOOST_AUTO_TEST_CASE (test_waitTimeout)
       {
          WChannelReader<int> reader (chan);
          barrier_p->wait ();
-         if (reader.Wait (boost::posix_time::milliseconds (m_timeout)))
+         if (reader.Wait (std::chrono::milliseconds (m_timeout)))
          {
-            Msg msg = reader.Read (boost::posix_time::milliseconds (0));
+            Msg msg = reader.Read (std::chrono::milliseconds (0));
             BOOST_CHECK (msg);
             m_value = msg.get ();                     
          }
@@ -1128,21 +1056,21 @@ BOOST_AUTO_TEST_CASE (test_waitTimeout)
    BOOST_CHECK_EQUAL (TIMEOUT, thrObj.m_timeout);
    WBarrierPtr barrier_p (new barrier (2));
    WChannel<int> chan;
-   boost::thread thr (boost::bind (&WWaitThread::Run,
-                                   boost::ref (thrObj),
-                                   boost::ref (chan),
-                                   barrier_p));
+   std::thread thr (boost::bind (&WWaitThread::Run,
+                                 boost::ref (thrObj),
+                                 boost::ref (chan),
+                                 barrier_p));
    barrier_p->wait ();
-   boost::this_thread::sleep (boost::posix_time::milliseconds (1));
+   std::this_thread::sleep_for (std::chrono::milliseconds (1));
    chan.Write (VALUE);
    barrier_p->wait ();
    BOOST_CHECK_EQUAL (VALUE, thrObj.m_value);
    thr.join ();
 
-   boost::thread thr2 (boost::bind (&WWaitThread::Run,
-                                    boost::ref (thrObj),
-                                    boost::ref (chan),
-                                    barrier_p));
+   std::thread thr2 (boost::bind (&WWaitThread::Run,
+                                  boost::ref (thrObj),
+                                  boost::ref (chan),
+                                  barrier_p));
    barrier_p->wait ();
    barrier_p->wait ();
    BOOST_CHECK_EQUAL (TIMEOUT_VALUE, thrObj.m_value);
@@ -1161,13 +1089,7 @@ BOOST_AUTO_TEST_CASE (test_waitRetry)
 
    WChannel<int> chan;
    WChannelReader<int> reader (chan);
-   BOOST_CHECK_THROW ((Atomically (boost::bind (&WWaitRetry::Run,
-                                                WWaitRetry (),
-                                                boost::ref (reader),
-                                                _1),
-                                   WConRes (WConflictResolution::THROW)
-                                   & WMaxRetries (0))),
-                      WMaxRetriesException);
+   BOOST_CHECK_THROW ((Atomically (boost::bind (&WWaitRetry::Run, WWaitRetry (), boost::ref (reader), _1), WMaxRetries (0))), WMaxRetriesException);
 }
 
 BOOST_AUTO_TEST_CASE (test_waitRetryTimeout)
@@ -1176,7 +1098,7 @@ BOOST_AUTO_TEST_CASE (test_waitRetryTimeout)
    {
       void Run (WChannelReader<int>& reader, const unsigned int timeout, WAtomic& at) const
       {
-         reader.RetryIfEmpty (at, boost::posix_time::milliseconds (timeout));
+         reader.RetryIfEmpty (at, std::chrono::milliseconds (timeout));
       }
    };
 
@@ -1315,7 +1237,7 @@ BOOST_AUTO_TEST_CASE (test_stack_overflow_read_retry_lots)
                   {
                      for (auto i = 0; i <= maxElement; ++i)
                      {
-                        reader.ReadRetry (at, boost::posix_time::seconds (0));
+                        reader.ReadRetry (at, std::chrono::seconds (0));
                         lastElement = i;
                      }
                   });
