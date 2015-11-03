@@ -1373,7 +1373,7 @@ namespace  WSTM
 
    }
 
-   void WAtomic::AtomicallyImpl(WAtomicOp op,
+   void WAtomic::AtomicallyImpl(WAtomicOp& op,
                                 const WMaxConflicts& maxConflicts,
                                 const WMaxRetries& maxRetries,
                                 const WMaxRetryWait& maxRetryWait)
@@ -1408,7 +1408,7 @@ namespace  WSTM
             //this is a child transaction so just run the op and
             //merge to parent, exceptions and committing will be handled by the
             //root transaction
-            op (at);
+            op.Run (at);
             s_transData.MergeToParent ();
             at.m_committed = true;
             return;
@@ -1447,7 +1447,7 @@ namespace  WSTM
          
          try
          {
-            op(at);
+            op.Run (at);
          }
          catch(Internal::WFailedValidationException&)
          {
@@ -1493,10 +1493,10 @@ namespace  WSTM
       }
    }
 
-   void WInconsistent::InconsistentlyImpl(WInconsistentOp op)
+   void WInconsistent::InconsistentlyImpl(WInconsistentOp& op)
    {
       WInconsistent ins;
-      op(ins);
+      op.Run (ins);
    }
 
    WInconsistent::WInconsistent() :

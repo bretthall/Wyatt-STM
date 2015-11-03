@@ -60,10 +60,19 @@ namespace WSTM
    */
    WSTM_LIBAPI extern const unsigned int UNLIMITED;
 
+   namespace Internal
+   {
+      template <typename Trans_t>
+      struct WStmOp
+      {
+         virtual void Run (Trans_t& t) = 0;
+      };
+   }
+   
    class WAtomic;
-   typedef std::function<void (WAtomic&)> WAtomicOp;
+   using WAtomicOp = Internal::WStmOp<WAtomic>;
    class WInconsistent;
-   typedef std::function<void (WInconsistent&)> WInconsistentOp;
+   using WInconsistentOp = Internal::WStmOp<WInconsistent>;
 	
    /**
       Enumeration that tells STM::atomically how to react when it
@@ -387,7 +396,7 @@ namespace WSTM
          should be looking at STM::atomically() instead.
       */
       //TODO: replace WAtomicOp with something that doesn't have overhead of boost::function
-      static void AtomicallyImpl(WAtomicOp op,
+      static void AtomicallyImpl(WAtomicOp& op,
                                  const WMaxConflicts& maxConflicts,
                                  const WMaxRetries& maxRetries,
                                  const WMaxRetryWait& maxRetryWait);
@@ -465,7 +474,7 @@ namespace WSTM
          This is used internally, you want to look at
          inconsistently() instead.
       */
-      static void InconsistentlyImpl(WInconsistentOp op);
+      static void InconsistentlyImpl(WInconsistentOp& op);
 
       /**
          Causes a read lock to be acquired. Normally during
@@ -505,18 +514,37 @@ namespace WSTM
 
    namespace Internal
    {
+      template <typename Trans_t, typename Op_t>
+      struct WStmOpVoid : public WStmOp<Trans_t>
+      {
+         WStmOpVoid (Op_t& op): m_op(op) {}
+         
+         virtual void Run (Trans_t& t) override
+         {
+            m_op(t);
+         }
+
+         Op_t& m_op;
+      };
+
+      template <typename Trans_t, typename Op_t>
+      WStmOpVoid<Trans_t, Op_t> MakeVoidOp (Op_t& op)
+      {
+         return WStmOpVoid<Trans_t, Op_t>(op);
+      }
+      
       template <typename Trans_t, typename Op_t, typename Result_t, bool IsRef>
       struct WValOp;
 
       template <typename Trans_t, typename Op_t, typename Result_t>
-      struct WValOp <Trans_t, Op_t, Result_t, true>
+      struct WValOp <Trans_t, Op_t, Result_t, true> : public WStmOp<Trans_t>
       {
          typedef void result_type;
          typedef Trans_t& argument_type;
 			
-         WValOp(const Op_t& op): m_op(op ) {}
+         WValOp(Op_t& op): m_op(op) {}
 
-         void operator()(Trans_t& t)
+         virtual void Run (Trans_t& t) override
          {
             m_res_p = &m_op(t);
          }
@@ -526,7 +554,7 @@ namespace WSTM
             return *m_res_p;
          }
 
-         const Op_t& m_op;
+         Op_t& m_op;
          typedef typename std::remove_reference<typename std::remove_const<Result_t>::type>::type Res_t;
          Res_t* m_res_p;
   
@@ -535,15 +563,15 @@ namespace WSTM
       };
 
       template <typename Trans_t, typename Op_t, typename Result_t>
-      struct WValOp <Trans_t, Op_t, Result_t, false>
+      struct WValOp <Trans_t, Op_t, Result_t, false> : public WStmOp<Trans_t>
       {
          typedef void result_type;
          typedef Trans_t& argument_type;
          typedef typename boost::remove_const<Result_t>::type Res_t;
 			
-         WValOp(const Op_t& op): m_op(op ) {}
+         WValOp(Op_t& op): m_op(op) {}
 
-         void operator()(Trans_t& t)
+         virtual void Run (Trans_t& t) override
          {
             m_res = m_op(t);
          }
@@ -560,12 +588,20 @@ namespace WSTM
          {};
          typedef boost::variant<WEmpty, Res_t> Result;
          
-         const Op_t& m_op;
+         Op_t& m_op;
          Result m_res;
   
       private:
          WValOp& operator= (const WValOp&) { return *this; }   // Silence warning 4512.
       };
+
+      template <typename Trans_t, typename Op_t>
+      auto MakeValOp (Op_t& op)
+      {
+         using ResultType = decltype (op (std::declval<std::add_lvalue_reference_t<Trans_t>>()));
+         return Internal::WValOp<Trans_t, Op_t, ResultType, std::is_reference<ResultType>::value> (op);
+      }
+      
    }
 
    /**
@@ -619,7 +655,7 @@ namespace WSTM
          WCantContinueException("Retry timed out")
       {}
    };
-   
+
    //!{
    /**
       Runs the given operation in an atomic fashion.  This
@@ -656,22 +692,17 @@ namespace WSTM
    auto Atomically (const Op_t& op, const Options_t&... options) -> 
       typename std::enable_if<std::is_same<void, decltype (op (std::declval<WAtomic>()))>::value, void>::type
    {
-      WAtomic::AtomicallyImpl(std::cref(op), findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
+      auto voidOp = Internal::MakeVoidOp<WAtomic> (op);
+      WAtomic::AtomicallyImpl(voidOp, findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
    }
                    
    template <typename Op_t, typename ... Options_t>
    auto Atomically (const Op_t& op, const Options_t&... options) -> 
       typename std::enable_if<!std::is_same<void, decltype (op (std::declval<WAtomic>()))>::value, decltype (op (std::declval<WAtomic>()))>::type
    {
-#ifdef WIN32
-#pragma warning (push)
-#pragma warning (disable: 4239)
-      typedef decltype (op (std::declval<WAtomic>())) ResultType;
-#pragma warning (pop)
-#endif //WIN32
-      Internal::WValOp<WAtomic, Op_t, ResultType, std::is_reference<ResultType>::value> val_op(op);
-      WAtomic::AtomicallyImpl(std::ref(val_op), findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
-      return val_op.GetResult();
+      auto valOp = Internal::MakeValOp<WAtomic> (op);
+      WAtomic::AtomicallyImpl(valOp, findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
+      return valOp.GetResult();
    }   
    //!}
 
@@ -771,22 +802,17 @@ namespace WSTM
    auto Inconsistently(const Op_t& op, NO_ATOMIC) ->
       typename std::enable_if<std::is_same<void, decltype (op (std::declval<WInconsistent>()))>::value, void>::type
    {
-      WInconsistent::InconsistentlyImpl(std::cref(op));
+      auto voidOp = Internal::MakeVoidOp<WInconsistent>(op);
+      WInconsistent::InconsistentlyImpl(voidOp);
    }
 
    template <typename Op_t>
    auto Inconsistently(const Op_t& op, NO_ATOMIC) ->
       typename std::enable_if<!std::is_same<void, decltype (op (std::declval<WInconsistent>()))>::value, decltype (op (std::declval<WInconsistent>()))>::type
    {
-#ifdef WIN32
-#pragma warning (push)
-#pragma warning (disable: 4239)
-      typedef decltype (op (std::declval<WInconsistent>())) ResultType;
-#pragma warning (pop)
-#endif //WIN32
-      Internal::WValOp<WInconsistent, Op_t, ResultType, std::is_reference<ResultType>::value> val_op(op);
-      WInconsistent::InconsistentlyImpl(std::ref(val_op));
-      return val_op.GetResult();
+      auto valOp = Internal::MakeValOp<WInconsistent>(op);
+      WInconsistent::InconsistentlyImpl(valOp);
+      return valOp.GetResult();
    }
    //!}
 			

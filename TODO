@@ -1,4 +1,6 @@
-* std::list in WTransactionData (vector<std::function> would probably be better)
+* std::list in WTransactionData
+  - vector<std::function> would probably be better
+  - we coudl use a "small value optimization" with an array, but we're already allocating in std::function so SVO might not help here
 * use move semantics in WTransactionData::MergeToParent
 * vector of WTransactionData objects instead of linked list?
   - maybe a memory pool instead
