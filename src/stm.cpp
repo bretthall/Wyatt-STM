@@ -784,10 +784,11 @@ namespace  WSTM
          WUpgradeableLock m_lock;
       };
 
-      WTransactionDataList s_transData;
+      THREAD_LOCAL WTransactionDataList s_transData;
 
       WTransactionDataList::WTransactionDataList ():
-         m_cur_p (nullptr)
+         m_cur_p (nullptr),
+         m_lock (false)
       {}
 
       Internal::WTransactionData* WTransactionDataList::Get ()
@@ -938,7 +939,7 @@ namespace  WSTM
 
    bool WTimeArg::IsUnlimited () const
    {
-      return !!m_time_o;
+      return !m_time_o;
    }
 
    bool WTimeArg::operator<(const WTimeArg& t) const

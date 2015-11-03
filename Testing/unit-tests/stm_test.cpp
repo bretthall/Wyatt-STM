@@ -29,6 +29,7 @@ using boost::is_base_of;
 
 #include <cstdlib>
 #include <thread>
+#include <atomic>
 
 /**
  * Marks a variable as unused so that the compiler will not issue
@@ -208,68 +209,50 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_class_increment)
 	}
 }
 
-namespace
-{
-	void ConflictTestAtomic(int& repeat, WSTM::WVar<int>& v1, WSTM::WVar<int>& v2,
-                           boost::barrier& barrier, WSTM::WAtomic& at)
-	{
-		++repeat;
-		int val1 = v1.Get(at);
-		int val2 = v2.Get(at);
-		v1.Set(val1 + val2, at);
-		if(repeat == 1)
-		{
-			//only wait once since if we come through a second time there
-			//won't be another thread also waiting on the barrier. 
-			barrier.wait();
-		}
-	}
-
-	void ConflictTest(int& repeat, WSTM::WVar<int>& v1, WSTM::WVar<int>& v2,
-                     boost::barrier& finishBarrier, boost::barrier& conflictBarrier)
-	{
-      WSTM::Atomically ([&](WSTM::WAtomic& at){ConflictTestAtomic (repeat, v1, v2, conflictBarrier, at);});
-		finishBarrier.wait();
-	}
-}
-
 BOOST_AUTO_TEST_CASE (StmVarTests_test_conflict)
 {
-	WSTM::WVar<int> v1(1);
-	WSTM::WVar<int> v2(1);
-	boost::barrier finishBarrier(3);
-	boost::barrier conflictBarrier(2);
+   WSTM::WVar<int> v1(1);
+   WSTM::WVar<int> v2(1);
+   boost::barrier barrier(2);
 	
-	for(unsigned int i = 0; i < 100; ++i)
+	for(unsigned int i = 0; i < 10; ++i)
 	{
-		const int old1 = v1.GetReadOnly();
-		const int old2 = v2.GetReadOnly();
-		const int oldTotal = old1 + old2;
+      const auto old1 = v1.GetReadOnly ();
+      const auto old2 = v2.GetReadOnly ();
+      
+      std::atomic<int> repeat1 = 0;
+      std::thread t1 ([&]()
+         {
+            WSTM::Atomically ([&](WSTM::WAtomic& at)
+            {
+               ++repeat1;
+               v1.Set (v1.Get (at) + v2.Get (at), at);
+               barrier.wait ();
+            });
+            barrier.wait ();
+         });
 
-		int repeat1 = 0;
-      std::thread t1 ([&](){ConflictTest (repeat1, v1, v2, finishBarrier, conflictBarrier);});
-		int repeat2 = 0;
-      std::thread t2 ([&](){ConflictTest (repeat2, v2, v1, finishBarrier, conflictBarrier);});
-		finishBarrier.wait();
-
-		const int n1 = v1.GetReadOnly();
-		const int n2 = v2.GetReadOnly();
-		BOOST_CHECK((n1 == oldTotal) || (n2 == oldTotal));
-		if(n1 == oldTotal)
-		{
-			BOOST_CHECK_EQUAL(repeat1, 1);
-         BOOST_CHECK_EQUAL (repeat2, 2);			  
-			BOOST_CHECK_EQUAL(oldTotal + old2, n2);
-		}
-		else
-		{
-			BOOST_CHECK_EQUAL(repeat1, 2);
-         BOOST_CHECK_EQUAL (repeat2, 1);			  
-			BOOST_CHECK_EQUAL(oldTotal + old1, n1);		
-		}
-
+		std::atomic<int> repeat2 = 0;
+      std::thread t2 ([&]()
+         {
+            WSTM::Atomically ([&](WSTM::WAtomic& at)
+            {
+               ++repeat2;
+               v2.Set (v1.Get (at) + v2.Get (at), at);
+               if (repeat2.load () == 1)
+               {
+                  barrier.wait ();
+                  barrier.wait ();
+               }
+            });
+         });
       t1.join ();
       t2.join ();
+
+      BOOST_CHECK_EQUAL (v1.GetReadOnly (), old1 + old2);
+      BOOST_CHECK_EQUAL (v2.GetReadOnly (), old1 + 2*old2);
+      BOOST_CHECK_EQUAL (repeat1.load (), 1);
+      BOOST_CHECK_EQUAL (repeat2.load (), 2);
 	}
 }
 
@@ -1856,7 +1839,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_AtomicallyDuringThreadExit)
       //scope introduced so that the thread object will be gone by the
       //time the WThreadFunc dtor runs, otherwise we don't get the
       //right effect and miss any memory corruption
-      std::thread (WThreadFunc (bar_p));
+      std::thread (WThreadFunc (bar_p)).detach ();
    }
    bar_p->wait ();
    bar_p->wait ();   
