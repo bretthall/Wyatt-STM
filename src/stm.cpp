@@ -179,7 +179,7 @@ namespace  WSTM
       
       struct WReadLockTraits
       {
-         typedef boost::shared_lock<boost::upgrade_mutex> LockType;
+         using LockType = boost::shared_lock<boost::upgrade_mutex>;
 
          static void DoLock ()
          {
@@ -198,7 +198,7 @@ namespace  WSTM
 
       struct WUpgradeableLockTraits
       {
-         typedef boost::upgrade_lock<boost::upgrade_mutex> LockType;
+         using LockType = boost::upgrade_lock<boost::upgrade_mutex>;
 
          static void DoLock ()
          {
@@ -230,7 +230,7 @@ namespace  WSTM
          bool WaitForCommit(const WTimeArg& timeout);
             
          int m_count;
-         typedef typename LockTraits_t::LockType Lock;
+         using Lock = typename LockTraits_t::LockType;
          Lock m_lock;
 #ifdef _DEBUG
          bool m_writeLocked;
@@ -328,8 +328,8 @@ namespace  WSTM
          }
       }
 
-      typedef WLockImpl<WReadLockTraits> WReadLock;
-      typedef WLockImpl<WUpgradeableLockTraits> WUpgradeableLock;
+      using WReadLock = WLockImpl<WReadLockTraits>;
+      using WUpgradeableLock = WLockImpl<WUpgradeableLockTraits>;
       
       class WWriteLock
       {
@@ -376,9 +376,9 @@ namespace  WSTM
          std::hash<Internal::WVarCoreBase*> m_hash;
       };
 
-      typedef std::unordered_map<std::shared_ptr<Internal::WVarCoreBase>,
-                                 std::shared_ptr<Internal::WValueBase>,
-                                 WValueCoreBaseHash> VarMap;
+      using VarMap =  std::unordered_map<std::shared_ptr<Internal::WVarCoreBase>,
+                                         std::shared_ptr<Internal::WValueBase>,
+                                         WValueCoreBaseHash>;
    }
    
    namespace Internal
@@ -414,15 +414,15 @@ namespace  WSTM
          void SetLocalValue (uint64_t key, std::unique_ptr<Internal::WLocalValueBase>&& value_p);
 
          void AddBeforeCommit (WAtomic::WBeforeCommitFunc& after);
-         typedef std::list<WAtomic::WBeforeCommitFunc> WBeforeCommitList;
+         using WBeforeCommitList = std::list<WAtomic::WBeforeCommitFunc> ;
          void GetBeforeCommits (WBeforeCommitList& beforeCommit);
 
          void AddAfter (WAtomic::WAfterFunc& after);
-         typedef std::list<WAtomic::WAfterFunc> WAfterList;
+         using WAfterList = std::list<WAtomic::WAfterFunc>;
          void GetAfters (WAfterList& afters);
 
          void AddOnFail (WAtomic::WOnFailFunc& after);
-         typedef std::list<WAtomic::WOnFailFunc> WOnFailList;
+         using WOnFailList = std::list<WAtomic::WOnFailFunc>;
          void RunOnFails ();
          
          void MergeToParent ();

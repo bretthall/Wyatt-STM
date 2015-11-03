@@ -353,7 +353,7 @@ namespace WSTM
          around when the function runs will still be around by using
          shared_ptr or something similar.
       */
-      typedef std::function<void (WAtomic&)> WBeforeCommitFunc;
+      using WBeforeCommitFunc = std::function<void (WAtomic&)>;
       void BeforeCommit (WBeforeCommitFunc func);
       //@}
 
@@ -372,7 +372,7 @@ namespace WSTM
          when the function runs will still be around by using
          shared_ptr or something similar.
       */
-      typedef std::function<void (void)> WAfterFunc;
+      using WAfterFunc = std::function<void (void)>;
       void After(WAfterFunc func);
       //@}
 
@@ -386,7 +386,7 @@ namespace WSTM
        *
        * @param func The function to call.
        */
-      typedef std::function<void (void)> WOnFailFunc;
+      using WOnFailFunc = std::function<void (void)>;
       void OnFail (WOnFailFunc func);
       //@}
       
@@ -539,9 +539,6 @@ namespace WSTM
       template <typename Trans_t, typename Op_t, typename Result_t>
       struct WValOp <Trans_t, Op_t, Result_t, true> : public WStmOp<Trans_t>
       {
-         typedef void result_type;
-         typedef Trans_t& argument_type;
-			
          WValOp(Op_t& op): m_op(op) {}
 
          virtual void Run (Trans_t& t) override
@@ -555,7 +552,7 @@ namespace WSTM
          }
 
          Op_t& m_op;
-         typedef typename std::remove_reference<typename std::remove_const<Result_t>::type>::type Res_t;
+         using Res_t = typename std::remove_reference<typename std::remove_const<Result_t>::type>::type;
          Res_t* m_res_p;
   
       private:
@@ -565,9 +562,7 @@ namespace WSTM
       template <typename Trans_t, typename Op_t, typename Result_t>
       struct WValOp <Trans_t, Op_t, Result_t, false> : public WStmOp<Trans_t>
       {
-         typedef void result_type;
-         typedef Trans_t& argument_type;
-         typedef typename boost::remove_const<Result_t>::type Res_t;
+         using Res_t = typename boost::remove_const<Result_t>::type;
 			
          WValOp(Op_t& op): m_op(op) {}
 
@@ -586,7 +581,7 @@ namespace WSTM
          //variant so that we can handle "move-only" objects.
          struct WEmpty
          {};
-         typedef boost::variant<WEmpty, Res_t> Result;
+         using Result = boost::variant<WEmpty, Res_t>;
          
          Op_t& m_op;
          Result m_res;
@@ -863,8 +858,8 @@ namespace WSTM
    public:
       friend class WAtomic;
       
-      typedef Type_t Type;
-      typedef typename boost::call_traits<Type>::param_type param_type;
+      using Type = Type_t;
+      using param_type = typename boost::call_traits<Type>::param_type;
 		
       /**
          Default Constructor.  This can only be used if
@@ -938,7 +933,7 @@ namespace WSTM
       */
       Type GetReadOnly() const
       {
-         return Atomically(WRead(*this));
+         return Atomically ([&](WAtomic& at){return Get (at);});
       }
 
       /**
@@ -983,7 +978,7 @@ namespace WSTM
       */
       void Set(param_type val)
       {
-         Atomically(WSet(val, *this));
+         Atomically ([&](WAtomic& at){Set (val, at);});
       }
 
       /**
@@ -1009,42 +1004,8 @@ namespace WSTM
       
    private:
       //NOT COPYABLE
-      WVar (const WVar&);
-      WVar& operator= (const WVar&);
-      
-      struct WSet
-      {
-         typedef void result_type;
-         param_type m_val;
-         WVar& m_var;
-         WSet(param_type val, WVar& var):
-            m_val(val), m_var(var) 
-         {}
-
-         void operator()(WAtomic& at) const
-         {
-            m_var.Set(m_val, at);
-         }
-
-      private:
-         WSet& operator= (const WSet&) { return *this; } // Silence warning C4512
-      };
-
-      struct WRead
-      {
-         typedef Type result_type;
-         const WVar& m_var;
-         WRead(const WVar& var): m_var(var) {}
-						
-         Type operator()(WAtomic& at) const
-         {
-            Type val = m_var.Get(at);
-            return val;
-         }
-
-      private:
-         WRead& operator= (const WRead&) { return *this; } // Silence warning C4512
-      };
+      WVar (const WVar&) = delete;
+      WVar& operator= (const WVar&) = delete;
 
       typename std::shared_ptr<Internal::WVarCore<Type_t>> m_core_p;
    };
