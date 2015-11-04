@@ -5,3 +5,5 @@
 * vector of WTransactionData objects instead of linked list?
   - maybe a memory pool instead
 * Does VarMap need to hold WVarCoreBase as a shared_ptr?
+* add dll vs static switch in cmake file
+  - need to define WSTM_LIBAPI and WSTM_CLASSAPI when in dll mode
