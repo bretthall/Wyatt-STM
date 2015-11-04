@@ -15,18 +15,11 @@ using boost::format;
 #include <boost/test/unit_test.hpp>
 #include <boost/thread/barrier.hpp>
 using boost::barrier;
-#include <boost/timer.hpp>
-using boost::timer;
 
 #include <cstdlib>
 #include <thread>
 #include <atomic>
 
-/**
- * Marks a variable as unused so that the compiler will not issue
- * warnings. 
- */
-#define UNUSED_VAR(VAR) (void)VAR
 
 BOOST_AUTO_TEST_SUITE (STM)
 
@@ -645,7 +638,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_lock)
                //signal the conflictee thread that we're committing before we start our commit (we
                //should get blocked on the commit lock until the conflictee commits this time so we
                //can't signal after our commit is done) 
-               at.BeforeCommit ([&b2](WSTM::WAtomic& at){UNUSED_VAR (at); b2.wait ();});
+               at.BeforeCommit ([&b2](WSTM::WAtomic&){b2.wait ();});
             }
             //wait for the conflictee thread to signal that it has read conflictVar before we commit
             bar1.wait ();
@@ -731,7 +724,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_lock_with_sub_trans)
                //signal the conflictee thread that we're committing before we start our commit (we
                //should get blocked on the commit lock until the conflictee commits this time so we
                //can't signal after our commit is done) 
-               at.BeforeCommit ([&b2](WSTM::WAtomic& at){UNUSED_VAR (at); b2.wait ();});
+               at.BeforeCommit ([&b2](WSTM::WAtomic&){b2.wait ();});
             }
             //wait for the conflictee thread to signal that it has read conflictVar before we commit
             bar1.wait ();
@@ -2357,9 +2350,8 @@ namespace
 
 BOOST_AUTO_TEST_CASE (move_result)
 {   
-   const auto F = [](const int value, WSTM::WAtomic& at) -> WMoveOnly
+   const auto F = [](const int value, WSTM::WAtomic&) -> WMoveOnly
       {
-         UNUSED_VAR (at);
          return WMoveOnly (value);
       };
    const auto value = 50578;
@@ -2389,9 +2381,8 @@ namespace
 
 BOOST_AUTO_TEST_CASE (copy_result)
 {
-   const auto F = [](const int value, WSTM::WAtomic& at) -> WCopyOnly
+   const auto F = [](const int value, WSTM::WAtomic&) -> WCopyOnly
       {
-         UNUSED_VAR (at);
          return WCopyOnly (value);
       };
    const auto value = 50578;
