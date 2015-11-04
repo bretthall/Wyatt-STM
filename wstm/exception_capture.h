@@ -8,15 +8,10 @@
 
 #pragma once
 
-#include "STM.h"
-#include "BSS/wtcbss.h"
-#include "BSS/Common/ExceptionCapture.h"
+#include "stm.h"
+#include "exports.h"
 
-#include <boost/utility/enable_if.hpp>
-#include <boost/type_traits/is_base_of.hpp>
-#include <boost/function.hpp>
-
-namespace bss { namespace thread { namespace STM
+namespace WSTM
 {
    /**
       Class that wraps exceptions so that they can be thrown later.
@@ -27,61 +22,61 @@ namespace bss { namespace thread { namespace STM
       this integration is not needed then WExceptionCapture should
       probably be used instead.
    */
-   class BSS_CLASSAPI WExceptionCaptureAtomic : public WExceptionCaptureBase
+   class WSTM_CLASSAPI WExceptionCapture
    {
    public:
-      friend class ::bss::WExceptionCapture;
-      
       /**
          Creats an empty wrapper.
       */
-      WExceptionCaptureAtomic ();
-        
-      /**
-         Copies the error from the given wrapper into this one.
-      */
-      WExceptionCaptureAtomic (const WExceptionCaptureAtomic& exc);
+      WExceptionCapture ();
 
+      //!{
       /**
-         Copies the error from the given wrapper into this one.
-      */
-      WExceptionCaptureAtomic (const ::bss::WExceptionCapture& exc);
-
+       * Creates a wrapper that contains the given exception.
+       */
       template <typename Capture_t>
-      WExceptionCaptureAtomic (const Capture_t& exc,
-                               typename boost::disable_if<
-                               boost::is_base_of <WExceptionCaptureBase, Capture_t> >::type*
-                               /*dummy*/ = 0)
+      WExceptionCapture (const Capture_t& exc)
       {
          Capture (exc);
       }
+      template <typename Capture_t>
+      WExceptionCapture (const Capture_t& exc, WAtomic& at)
+      {
+         Capture (exc, at);
+      }
+      //!}
+      
+      //!{
+      /**
+         Copies/moves the error from the given wrapper into this one.
+      */
+      WExceptionCapture (const WExceptionCapture& exc);
+      WExceptionCapture& operator= (const WExceptionCapture& exc);
+
+      WExceptionCapture (WExceptionCapture&& exc);
+      WExceptionCapture& operator=(WExceptionCapture&& exc);
+      //!}
       
       //!{
       /**
          Captures the given exception. If the object to capture is
-         another WExceptionCaptureAtomic or WExceptionCapturethen the
+         another WExceptionCapture or WExceptionCapturethen the
          object captured by exc will be captured instead. 
 
          @param exc The exception to capture, must be copyable.
          @param at The STM transaction to use.
       */
-      void Capture (const WExceptionCaptureAtomic& exc);
-      void Capture (const WExceptionCaptureAtomic& exc, WAtomic& at);
       void Capture (const WExceptionCapture& exc);
       void Capture (const WExceptionCapture& exc, WAtomic& at);
       template <typename Capture_t>
-      void Capture (const Capture_t& exc,
-                    typename boost::disable_if<
-                    boost::is_base_of <WExceptionCaptureBase, Capture_t> >::type* /*dummy*/ = 0)
+      void Capture (const Capture_t& exc)
       {
-         m_thrower_v.Set (WThrower<Capture_t> (exc));
+         m_thrower_v.Set ([exc](){throw exc;});
       }
       template <typename Capture_t>
-      void Capture (const Capture_t& exc, WAtomic& at,
-                    typename boost::disable_if<
-                    boost::is_base_of <WExceptionCaptureBase, Capture_t> >::type* /*dummy*/ = 0)
+      void Capture (const Capture_t& exc, WAtomic& at)
       {
-         m_thrower_v.Set (WThrower<Capture_t> (exc), at);
+         m_thrower_v.Set ([exc](){throw exc;}, at);
       }
       //!}
 
@@ -115,23 +110,10 @@ namespace bss { namespace thread { namespace STM
       //!}
       
    private:
-      void CaptureAt (const WExceptionCaptureAtomic& exc, WAtomic& at);
-
-      template <typename Capture_t>
-      struct WThrower
-      {
-         Capture_t m_exc;
-         WThrower (const Capture_t& exc) : m_exc (exc) {}
-         void operator () ()
-         {
-            throw m_exc;
-         }
-      };
-      
-      typedef boost::function<void ()> Thrower;
+      typedef std::function<void ()> Thrower;
       WVar<Thrower> m_thrower_v;
    };
 
 
-}}}
+}
 

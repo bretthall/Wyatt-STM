@@ -6,73 +6,62 @@
  Copyright (c) 2002-2013. All rights reserved.
 ****************************************************************************/
 
-#include "stdafx.h"
-#include "ExceptionCaptureAtomic.h"
-#include "BSS/Common/ExceptionCapture.h"
+#include "exception_capture.h"
 
-#ifdef WIN32
-#pragma warning (disable: 4127 4239 4244 4265 4503 4512 4640 6011)
-#endif
-
-#include <boost/bind.hpp>
-using boost::bind;
-using boost::cref;
-
-namespace bss { namespace thread { namespace STM
+namespace WSTM
 {
-   WExceptionCaptureAtomic::WExceptionCaptureAtomic ()
+   WExceptionCapture::WExceptionCapture ()
    {}
 
-   WExceptionCaptureAtomic::WExceptionCaptureAtomic (const WExceptionCaptureAtomic& exc):
+   WExceptionCapture::WExceptionCapture (const WExceptionCapture& exc):
       m_thrower_v (exc.m_thrower_v.GetReadOnly ())
    {}
 
-   WExceptionCaptureAtomic::WExceptionCaptureAtomic (const ::bss::WExceptionCapture& exc):
-      m_thrower_v (exc.m_thrower)
+   WExceptionCapture& WExceptionCapture::operator= (const WExceptionCapture& exc)
+   {
+      Atomically ([&](WAtomic& at)
+                  {
+                     m_thrower_v.Set (exc.m_thrower_v.Get(at), at);
+                  });
+      return *this;
+   }
+
+   WExceptionCapture::WExceptionCapture (WExceptionCapture&& exc):
+      m_thrower_v (std::move (exc.m_thrower_v))
    {}
 
-   void WExceptionCaptureAtomic::Capture (const WExceptionCaptureAtomic& exc)
+   WExceptionCapture& WExceptionCapture::operator= (WExceptionCapture&& exc)
    {
-      Atomically (boost::bind (&WExceptionCaptureAtomic::CaptureAt, this, cref (exc), _1));
-   }
-   
-   void WExceptionCaptureAtomic::Capture (const WExceptionCaptureAtomic& exc, WAtomic& at)
-   {
-      CaptureAt (exc, at);
+      m_thrower_v = std::move (exc.m_thrower_v);
+      return *this;
    }
 
-   void WExceptionCaptureAtomic::CaptureAt (const WExceptionCaptureAtomic& exc, WAtomic& at)
+   void WExceptionCapture::Capture (const WExceptionCapture& exc)
+   {
+      Atomically ([&](WAtomic& at){Capture (exc, at);});
+   }
+   
+   void WExceptionCapture::Capture (const WExceptionCapture& exc, WAtomic& at)
    {
       m_thrower_v.Set (exc.m_thrower_v.Get (at), at);
    }
 
-   void WExceptionCaptureAtomic::Capture (const WExceptionCapture& exc)
-   {
-      m_thrower_v.Set (exc.m_thrower);
-   }
-   
-   void WExceptionCaptureAtomic::Capture (const WExceptionCapture& exc, WAtomic& at)
-   {
-      m_thrower_v.Set (exc.m_thrower, at);
-   }
-
-   void WExceptionCaptureAtomic::Reset ()
+   void WExceptionCapture::Reset ()
    {
       m_thrower_v.Set (Thrower ());
    }
    
-   void WExceptionCaptureAtomic::Reset (WAtomic& at)
+   void WExceptionCapture::Reset (WAtomic& at)
    {
       m_thrower_v.Set (Thrower (), at);
    }
 
-   void WExceptionCaptureAtomic::ThrowCaptured () const
+   void WExceptionCapture::ThrowCaptured () const
    {
-      Atomically (
-         boost::bind (&WExceptionCaptureAtomic::ThrowCaptured, this, _1));
+      Atomically ([&](WAtomic& at){ThrowCaptured (at);});
    }
    
-   void WExceptionCaptureAtomic::ThrowCaptured (WAtomic& at) const
+   void WExceptionCapture::ThrowCaptured (WAtomic& at) const
    {
       Thrower thrower = m_thrower_v.Get (at);
       if (thrower)
@@ -81,14 +70,14 @@ namespace bss { namespace thread { namespace STM
       }
    }
 
-   WExceptionCaptureAtomic::operator bool () const
+   WExceptionCapture::operator bool () const
    {
-      return m_thrower_v.GetReadOnly ();
+      return bool (m_thrower_v.GetReadOnly ());
    }
    
-   bool WExceptionCaptureAtomic::HasCaptured(WAtomic& at) const
+   bool WExceptionCapture::HasCaptured(WAtomic& at) const
    {
-      return m_thrower_v.Get (at);
+      return bool (m_thrower_v.Get (at));
    }
 
-}}}
+}

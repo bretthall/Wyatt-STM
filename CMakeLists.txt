@@ -41,7 +41,8 @@ link_directories(${Boost_LIBRARY_DIRS})
 #for now add source files by hand
 set(WSTM_SOURCES
   src/stm.cpp
-  src/channel.cpp)
+  src/channel.cpp
+  src/exception_capture.cpp)
 
 add_library(wstm ${WSTM_SOURCES})
 set_property(TARGET wstm PROPERTY CXX_STANDARD 14)
@@ -53,7 +54,8 @@ set_property(TARGET wstm PROPERTY CXX_STANDARD 14)
 set(UNIT_TEST_SOURCES
   Testing/unit-tests/main.cpp
   Testing/unit-tests/stm_test.cpp
-  Testing/unit-tests/channel_tests.cpp)
+  Testing/unit-tests/channel_tests.cpp
+  Testing/unit-tests/exception_capture_tests.cpp)
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})
 set_property(TARGET unit_tests PROPERTY CXX_STANDARD 14)
