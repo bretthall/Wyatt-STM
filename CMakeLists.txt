@@ -63,3 +63,8 @@ set(UNIT_TEST_SOURCES
 add_executable(unit_tests ${UNIT_TEST_SOURCES})
 set_property(TARGET unit_tests PROPERTY CXX_STANDARD 14)
 target_link_libraries(unit_tests wstm)
+
+set(CONTENTION_TEST_SOURCES Testing/contention/contention_test.cpp)
+add_executable(contention_tests ${CONTENTION_TEST_SOURCES})
+set_property(TARGET contention_tests PROPERTY CXX_STANDARD 14)
+target_link_libraries(contention_tests wstm)
