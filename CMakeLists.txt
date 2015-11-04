@@ -42,6 +42,7 @@ link_directories(${Boost_LIBRARY_DIRS})
 set(WSTM_SOURCES
   src/stm.cpp
   src/channel.cpp
+  src/deferred_result.cpp
   src/exception_capture.cpp)
 
 add_library(wstm ${WSTM_SOURCES})
@@ -56,6 +57,7 @@ set(UNIT_TEST_SOURCES
   Testing/unit-tests/stm_test.cpp
   Testing/unit-tests/channel_tests.cpp
   Testing/unit-tests/persistent_list_tests.cpp
+  Testing/unit-tests/deferred_result_tests.cpp
   Testing/unit-tests/exception_capture_tests.cpp)
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})

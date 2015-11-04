@@ -161,31 +161,28 @@ namespace WSTM
       template <typename Type_t>
       struct WVarCore : public WVarCoreBase
       {
-         virtual bool Validate (const WValueBase& val) const;
-         virtual std::shared_ptr<WValueBase> Commit (const std::shared_ptr<WValueBase>& val_p);
+         virtual bool Validate (const WValueBase& val) const override
+         {
+            //have to define here, else we get C4505 from VC++
+            return (val.m_version == m_value_p->m_version);
+         }
+         
+         virtual std::shared_ptr<WValueBase> Commit (const std::shared_ptr<WValueBase>& val_p) override
+         {
+            //have to define here, else we get C4505 from VC++
+            std::shared_ptr<WValueBase> old_p = m_value_p;
+#ifdef _DEBUG
+            const auto oldPtr_p = static_cast<const WValue<Type_t>*>(old_p.get ());
+            (void) oldPtr_p;
+#endif
+            m_value_p = std::static_pointer_cast<WValue<Type_t> >(val_p);
+            return old_p;
+         }
          
          explicit WVarCore(std::shared_ptr<WValue<Type_t>>&& val_p);
 
          typename std::shared_ptr<WValue<Type_t>> m_value_p;
       };
-
-      template<typename Type_t>
-      bool WVarCore<Type_t>::Validate (const WValueBase& val) const
-      {
-         return (val.m_version == m_value_p->m_version);
-      }
-      
-      template<typename Type_t>
-      std::shared_ptr<WValueBase> WVarCore<Type_t>::Commit (const std::shared_ptr<WValueBase>& val_p)
-      {
-         std::shared_ptr<WValueBase> old_p = m_value_p;
-#ifdef _DEBUG
-         const auto oldPtr_p = static_cast<const WValue<Type_t>*>(old_p.get ());
-         (void) oldPtr_p;
-#endif
-         m_value_p = std::static_pointer_cast<WValue<Type_t> >(val_p);
-         return old_p;
-      }
          
       template<typename Type_t>
       WVarCore<Type_t>::WVarCore(std::shared_ptr<WValue<Type_t>>&& val_p):

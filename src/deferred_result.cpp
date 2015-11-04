@@ -6,16 +6,9 @@
  Copyright (c) 2002-2011. All rights reserved.
 ****************************************************************************/
 
-#include "stdafx.h"
-#include "DeferredResult.h"
+#include "deferred_result.h"
 
-#ifdef WIN32
-#pragma warning (disable: 4127 4239 4244 4265 4503 4512 4640 6011)
-#endif
-
-#include <boost/foreach.hpp>
-
-namespace bss { namespace thread { namespace STM
+namespace WSTM
 {
    namespace Internal
    {
@@ -25,7 +18,6 @@ namespace bss { namespace thread { namespace STM
          m_readerCount_v (0)
       {}
 
-
       void WDeferredValueCoreBase::SetDone (WAtomic& at)
       {
          if (m_done_v.Get (at))
@@ -33,28 +25,18 @@ namespace bss { namespace thread { namespace STM
             throw WAlreadyDoneError ();
          }
 
-         struct WCallDoneCallbacks
-         {
-            bss::thread::WPersistentList<const WConn> m_connections;
-            WCallDoneCallbacks (const bss::thread::WPersistentList<const WConn>& connections):
-               m_connections (connections)
-            {}
-
-            void operator()()
-            {
-               BOOST_FOREACH (const WConn& conn, m_connections)
-               {
-                  conn.m_callback ();
-               }
-            }
-         };
-
          m_done_v.Set (true, at);
-         bss::thread::WPersistentList<const WConn> connections = m_connections.Get (at);
+         auto connections = m_connections.Get (at);
          if (!connections.empty ())
          {
-            at.After (WCallDoneCallbacks (connections));
-            m_connections.Set (bss::thread::WPersistentList<const WConn> (), at);
+            at.After ([connections]()
+                      {
+                         for (auto& conn: connections)
+                         {
+                            conn.m_callback ();
+                         }
+                      });
+            m_connections.Set (WPersistentList<const WConn> (), at);
          }
       }
       
@@ -76,7 +58,7 @@ namespace bss { namespace thread { namespace STM
       {
          try
          {
-            Atomically (boost::bind (&WDeferredValueCoreBase::RetryIfNotDone, this, _1, cref (timeout)));
+            Atomically ([&](WAtomic& at){RetryIfNotDone (at, timeout);});
             return true;
          }
          catch (WRetryTimeoutException&)
@@ -105,7 +87,7 @@ namespace bss { namespace thread { namespace STM
 
       int WDeferredValueCoreBase::Connect (DoneCallback callback, WAtomic& at)
       {
-         bss::thread::WPersistentList<const WConn> connections = m_connections.Get (at);
+         auto connections = m_connections.Get (at);
          const int index = m_connectionIndex.Get (at);
          connections.push_front (WConn (index, callback));
          m_connectionIndex.Set (index + 1);
@@ -115,19 +97,8 @@ namespace bss { namespace thread { namespace STM
       
       void WDeferredValueCoreBase::Disconnect (const int index, WAtomic& at)
       {
-         bss::thread::WPersistentList<const WConn> connections = m_connections.Get (at);
-         struct WIndexIs
-         {
-            const int m_index;
-            WIndexIs (const int index) : m_index (index) {}
-            bool operator()(const WConn& conn) const
-            {
-               return conn.m_index == m_index;
-            }
-         };
-         bss::thread::WPersistentList<const WConn>::iterator it = std::find_if (connections.begin (),
-                                                                   connections.end (),
-                                                                   WIndexIs (index));
+         auto connections = m_connections.Get (at);
+         auto it = std::find_if (connections.begin (), connections.end (), [index](const auto& conn) {return (conn.m_index == index);});
          if (it != connections.end ())
          {
             connections.erase (it);
@@ -163,7 +134,7 @@ namespace bss { namespace thread { namespace STM
          return (m_readerCount_v.Get (at) > 0);
       }
 
-      WDeferredValueWatch::WDeferredValueWatch (const WDeferredValueCoreBase::Ptr& core_p):
+      WDeferredValueWatch::WDeferredValueWatch (const std::shared_ptr<WDeferredValueCoreBase>& core_p):
          m_core_p (core_p)
       {}
       
@@ -171,13 +142,13 @@ namespace bss { namespace thread { namespace STM
       {
          if (m_core_p)
          {
-            const bool done =  Atomically (
-               boost::bind (&WDeferredValueCoreBase::IsDone, m_core_p.get (), _1));
-            if (!done)
-            {
-               Atomically (boost::bind (&WDeferredValueCoreBase::Fail<WBrokenPromiseError>,
-                                        m_core_p.get (), WBrokenPromiseError (), _1));
-            }
+            Atomically ([&](WAtomic& at)
+                        {
+                           if (!m_core_p->IsDone (at))
+                           {
+                              m_core_p->Fail (WBrokenPromiseError (), at);
+                           }
+                        });
          }
       }
 
@@ -190,4 +161,20 @@ namespace bss { namespace thread { namespace STM
       return value;
    }
 
-}}}
+   WNotDoneError::WNotDoneError ():
+      std::runtime_error ("Deferred result is not done yet")
+   {}
+   
+   WAlreadyDoneError::WAlreadyDoneError ():
+      std::runtime_error ("Deferred result is already done")
+   {}
+   
+   WInvalidDeferredResultError::WInvalidDeferredResultError ():
+      std::runtime_error ("Deferred result is no connected to a deferred value")
+   {}
+   
+   WBrokenPromiseError::WBrokenPromiseError ():
+      std::runtime_error ("Deferred value was not set done before destruction")
+   {}
+
+}

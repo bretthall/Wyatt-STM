@@ -8,43 +8,40 @@
 
 #pragma once
 
-#include "BSS/Thread/STM/STM.h"
-#include "BSS/Thread/PersistentList.h"
-#include "BSS/Thread/STM/ExceptionCaptureAtomic.h"
-#include "BSS/Common/Pointers.h"
-#include "BSS/wtcbss.h"
+#include "stm.h"
+#include "exception_capture.h"
+#include "exports.h"
+#include "persistent_list.h"
 
-#ifdef WIN32
-#pragma warning (push)
-#pragma warning (disable: 4127 4239 4244 4265 4503 4512 4640 6011)
-#endif
+#include <boost/optional.hpp>
 
-#include <boost/bind.hpp>
-#include <boost/function.hpp>
-
-namespace bss { namespace thread { namespace STM
+namespace WSTM
 {
    /**
     * Exception thrown by some methods of WDeferredResult if the
     * result is not available yet.
     */
-   class BSS_CLASSAPI WNotDoneError
-   {};
+   class WSTM_CLASSAPI WNotDoneError : public std::runtime_error
+   {
+   public:
+      WNotDoneError ();
+   };
 
    /**
     * Exception thrown by some methods of WDeferredValue if the value
     * is already in the done state.
     */
-   class BSS_CLASSAPI WAlreadyDoneError
-   {};
+   class WSTM_CLASSAPI WAlreadyDoneError : public std::runtime_error
+   {
+   public:
+      WAlreadyDoneError ();
+   };
    
    namespace Internal
    {
-      class BSS_CLASSAPI WDeferredValueCoreBase
+      class WSTM_CLASSAPI WDeferredValueCoreBase
       {
       public:
-         DEFINE_POINTERS (WDeferredValueCoreBase);
-
          WDeferredValueCoreBase ();
 
          template <typename Fail_t>
@@ -60,13 +57,13 @@ namespace bss { namespace thread { namespace STM
 
          bool Failed (WAtomic& at) const;
 
-         bool Wait (const WTimeArg& timeout = WTimeArg::UNLIMITED ()) const;
+         bool Wait (const WTimeArg& timeout = WTimeArg::Unlimited ()) const;
 
-         void RetryIfNotDone (WAtomic& at, const WTimeArg& timeout = WTimeArg::UNLIMITED ()) const;
+         void RetryIfNotDone (WAtomic& at, const WTimeArg& timeout = WTimeArg::Unlimited ()) const;
 
          void ThrowError (WAtomic& at) const;
 
-         typedef boost::function<void ()> DoneCallback;
+         using DoneCallback = std::function<void ()>;
          int Connect (DoneCallback callback, WAtomic& at);
          void Disconnect (const int index, WAtomic& at);
 
@@ -76,14 +73,14 @@ namespace bss { namespace thread { namespace STM
          
       private:
          WVar<bool> m_done_v;
-         WExceptionCaptureAtomic m_failure;
+         WExceptionCapture m_failure;
          struct WConn
          {
             int m_index;
             DoneCallback m_callback;
             WConn (const int index, DoneCallback callback);
          };
-         WVar<bss::thread::WPersistentList<const WConn> > m_connections;
+         WVar<WPersistentList<const WConn> > m_connections;
          WVar<int> m_connectionIndex;
          WVar<int> m_readerCount_v;
       };
@@ -93,8 +90,6 @@ namespace bss { namespace thread { namespace STM
       class WDeferredValueCore : public WDeferredValueCoreBase
       {
       public:
-         DEFINE_POINTERS (WDeferredValueCore);
-
          void Done (const Result_t& res, WAtomic& at)
          {
             SetDone (at);
@@ -118,21 +113,16 @@ namespace bss { namespace thread { namespace STM
 
       template <>
       class WDeferredValueCore<void> : public WDeferredValueCoreBase
+      {};
+
+      class WSTM_CLASSAPI WDeferredValueWatch
       {
       public:
-         DEFINE_POINTERS (WDeferredValueCore);         
-      };
-
-      class BSS_CLASSAPI WDeferredValueWatch
-      {
-      public:
-         DEFINE_POINTERS (WDeferredValueWatch);
-
-         WDeferredValueWatch (const WDeferredValueCoreBase::Ptr& core_p);
+         WDeferredValueWatch (const std::shared_ptr<WDeferredValueCoreBase>& core_p);
          ~WDeferredValueWatch ();
 
       private:
-         WDeferredValueCoreBase::Ptr m_core_p;
+         std::shared_ptr<WDeferredValueCoreBase> m_core_p;
       };
 
       template <typename Result_t>
@@ -140,9 +130,9 @@ namespace bss { namespace thread { namespace STM
       {
       public:
          WDeferredValueBase () :
-            m_core_p (new Core)
+            m_core_p (std::make_shared<Core>())
          {
-            m_watch_p.reset (new WDeferredValueWatch (m_core_p));
+            m_watch_p = std::make_shared<WDeferredValueWatch> (m_core_p);
          }
 
          WDeferredValueBase (const WDeferredValueBase& value):
@@ -163,15 +153,13 @@ namespace bss { namespace thread { namespace STM
          template <typename Fail_t>
          void Fail (const Fail_t& failure)
          {
-            Atomically (
-               boost::bind (
-                  &WDeferredValueBase::FailImpl<Fail_t>, this, boost::cref (failure), _1));
+            Atomically ([&](WAtomic& at){Fail (failure, at);});
          }
 
          template <typename Fail_t>
          void Fail (const Fail_t& failure, WAtomic& at)
          {
-            FailImpl (failure, at);
+            m_core_p->Fail (failure, at);
          }
          //!}
 
@@ -185,8 +173,7 @@ namespace bss { namespace thread { namespace STM
           */
          bool IsDone () const
          {
-            return Atomically (
-               boost::bind (&Internal::WDeferredValueCore<Result_t>::IsDone, m_core_p.get (), _1));
+            return Atomically ([&](WAtomic& at){return m_core_p->IsDone (at);});
          }
          
          bool IsDone (WAtomic& at) const
@@ -211,19 +198,11 @@ namespace bss { namespace thread { namespace STM
          //!}
          
       protected:
-         typedef Internal::WDeferredValueCore<Result_t> Core;
-         typedef typename Core::Ptr CorePtr;
+         using Core = Internal::WDeferredValueCore<Result_t>;
+         using CorePtr = std::shared_ptr<Core>;
          CorePtr m_core_p;
 
-         WDeferredValueWatch::Ptr m_watch_p;
-         
-      private:
-         template <typename Fail_t>
-         void FailImpl (const Fail_t& failure, WAtomic& at)
-         {
-            m_core_p->Fail (failure, at);
-         }
-
+         std::shared_ptr<WDeferredValueWatch> m_watch_p;
       };
 
    }
@@ -274,21 +253,14 @@ namespace bss { namespace thread { namespace STM
        */
       void Done (const Result_t& res)
       {
-         Atomically (boost::bind (&WDeferredValue::DoneImpl, this, boost::cref (res), _1));
+         Atomically ([&](WAtomic& at){Done (res, at);});
       }
       
       void Done (const Result_t& res, WAtomic& at)
       {
-         DoneImpl (res, at);
-      }
-      //!}
-
-   private:
-      void DoneImpl (const Result_t& res, WAtomic& at)
-      {
          m_core_p->Done (res, at);
       }
-      
+      //!}
    };
 
    /**
@@ -342,19 +314,13 @@ namespace bss { namespace thread { namespace STM
        */
       void Done ()
       {
-         Atomically (boost::bind (&WDeferredValue::DoneImpl, this, _1));
+         Atomically ([&](WAtomic& at){Done (at);});
       }
       void Done (WAtomic& at)
       {
-         DoneImpl (at);
-      }
-      //!}
-      
-   private:
-      void DoneImpl (WAtomic& at)
-      {
          m_core_p->SetDone (at);
       }
+      //!}
    };
 
    /**
@@ -362,15 +328,21 @@ namespace bss { namespace thread { namespace STM
     * WDeferredResult object is not associated with a WDeferredValue
     * object.
     */
-   class BSS_CLASSAPI WInvalidDeferredResultError
-   {};
+   class WSTM_CLASSAPI WInvalidDeferredResultError : public std::runtime_error
+   {
+   public:
+      WInvalidDeferredResultError ();
+   };
 
    /**
     * Exception thrown through WDeferredResult if the associated
     * WDeferredValue goes away without setting the result.
     */
-   class BSS_CLASSAPI WBrokenPromiseError
-   {};
+   class WSTM_CLASSAPI WBrokenPromiseError : public std::runtime_error
+   {
+   public:
+      WBrokenPromiseError ();
+   };
 
    /**
     * The read end of a deferred result pair (the other end is
@@ -421,8 +393,7 @@ namespace bss { namespace thread { namespace STM
        */
       WDeferredResult (const WDeferredResult& result)
       {
-         //for some reason VS2010 barfs if we don't use "this" below
-         Atomically ([&](WAtomic& at){this->Copy (result, at);});
+         Atomically ([&](WAtomic& at){Copy (result, at);});
       }
       
       WDeferredResult (const WDeferredResult& result, WAtomic& at)
@@ -432,8 +403,7 @@ namespace bss { namespace thread { namespace STM
 
       WDeferredResult& operator=(const WDeferredResult& result)
       {
-         //for some reason VS2010 barfs if we don't use "this" below
-         Atomically ([&](WAtomic& at){this->Copy (result, at);});
+         Atomically ([&](WAtomic& at){Copy (result, at);});
          return *this;
       }
 
@@ -453,8 +423,7 @@ namespace bss { namespace thread { namespace STM
        */
       WDeferredResult (const WDeferredValue<Result_t>& value)
       {
-         //for some reason VS2010 barfs if we don't use "this" below
-         Atomically ([&](WAtomic& at){this->Init (value, at);});
+         Atomically ([&](WAtomic& at){Init (value, at);});
       }
 
       WDeferredResult (const WDeferredValue<Result_t>& value, WAtomic& at)
@@ -464,8 +433,7 @@ namespace bss { namespace thread { namespace STM
 
       WDeferredResult& operator=(const WDeferredValue<Result_t>& value)
       {
-         //for some reason VS2010 barfs if we don't use "this" below
-         Atomically ([&](WAtomic& at){this->Init (value, at);});
+         Atomically ([&](WAtomic& at){Init (value, at);});
          return *this;
       }
 
@@ -483,7 +451,7 @@ namespace bss { namespace thread { namespace STM
        */
       operator bool() const
       {
-         return m_core_v.GetReadOnly ();
+         return bool (m_core_v.GetReadOnly ());
       }
       
       bool IsValid (WAtomic& at) const
@@ -523,7 +491,7 @@ namespace bss { namespace thread { namespace STM
        */
       bool IsDone () const
       {
-         return Atomically (boost::bind (&WDeferredResult::IsDone, this, _1));
+         return Atomically ([&](WAtomic& at){return IsDone (at);});
       }
       
       bool IsDone (WAtomic& at) const
@@ -545,7 +513,7 @@ namespace bss { namespace thread { namespace STM
        */
       bool Failed () const
       {
-         return Atomically (boost::bind (&WDeferredResult::Failed, this, _1));
+         return Atomically ([&](WAtomic& at){return Failed (at);});
       }
 
       bool Failed (WAtomic& at) const
@@ -567,7 +535,7 @@ namespace bss { namespace thread { namespace STM
        * WDeferredResult object is not associated with a
        * WDeferredValue.
        */
-      bool Wait (const WTimeArg& timeout = WTimeArg::UNLIMITED (), NO_ATOMIC) const
+      bool Wait (const WTimeArg& timeout = WTimeArg::Unlimited (), NO_ATOMIC) const
       {
          const auto core_p = Atomically ([&](WAtomic& at){return CheckCore (at);});
          return core_p->Wait (timeout);
@@ -585,7 +553,7 @@ namespace bss { namespace thread { namespace STM
        * WDeferredResult object is not associated with a
        * WDeferredValue.
        */
-      void RetryIfNotDone (WAtomic& at, const WTimeArg& timeout = WTimeArg::UNLIMITED ()) const
+      void RetryIfNotDone (WAtomic& at, const WTimeArg& timeout = WTimeArg::Unlimited ()) const
       {
          CheckCore (at)->RetryIfNotDone (at, timeout);
       }
@@ -605,7 +573,7 @@ namespace bss { namespace thread { namespace STM
        */
       Result_t GetResult () const
       {
-         return Atomically (boost::bind (&WDeferredResult::GetResult, this, _1));         
+         return Atomically ([&](WAtomic& at){return GetResult (at);});
       }
       
       Result_t GetResult (WAtomic& at) const
@@ -629,7 +597,7 @@ namespace bss { namespace thread { namespace STM
        */
       void ThrowError () const
       {
-         Atomically (boost::bind (&WDeferredResult::ThrowError, this, _1));
+         Atomically ([&](WAtomic& at){ThrowError (at);});
       }
       
       void ThrowError (WAtomic& at) const
@@ -654,7 +622,7 @@ namespace bss { namespace thread { namespace STM
          {}
          
          WConnection (const int index,
-                      const typename Internal::WDeferredValueCore<Result_t>::Ptr& core_p):
+                      const std::shared_ptr<Internal::WDeferredValueCore<Result_t>>& core_p):
             m_index (index), m_core_p (core_p)
          {}
 
@@ -665,12 +633,18 @@ namespace bss { namespace thread { namespace STM
           */
          void Disconnect ()
          {
-            Atomically (boost::bind (&WConnection::DisconnectImpl, this, _1));
+            Atomically ([&](WAtomic& at){Disconnect (at);});
          }
          
          void Disconnect (WAtomic& at)
          {
-            DisconnectImpl (at);
+            auto core_p = m_core_p.lock ();
+            if (core_p)
+            {
+               core_p->Disconnect (m_index, at);
+            }
+            m_index = -1;
+            m_core_p.reset ();
          }
          //!}
          
@@ -684,25 +658,14 @@ namespace bss { namespace thread { namespace STM
          }
          
       private:
-         void DisconnectImpl (WAtomic& at)
-         {
-            Internal::WDeferredValueCore<Result_t>::Ptr core_p = m_core_p.lock ();
-            if (core_p)
-            {
-               core_p->Disconnect (m_index, at);
-            }
-            m_index = -1;
-            m_core_p.reset ();
-         }
-
          int m_index;
-         typename Internal::WDeferredValueCore<Result_t>::WPtr m_core_p;
+         std::weak_ptr<Internal::WDeferredValueCore<Result_t>> m_core_p;
       };
 
       /**
        * The type that can be passed to OnDone.
        */
-      typedef Internal::WDeferredValueCoreBase::DoneCallback DoneCallback;
+      using DoneCallback = Internal::WDeferredValueCoreBase::DoneCallback;
 
       //!{
       /**
@@ -724,7 +687,7 @@ namespace bss { namespace thread { namespace STM
        */
       WConnection OnDone (DoneCallback callback)
       {
-         return Atomically (boost::bind (&WDeferredResult::OnDone, this, callback, _1));
+         return Atomically ([&](WAtomic& at){return OnDone (callback, at);});
       }
       
       WConnection OnDone (DoneCallback callback, WAtomic& at)
@@ -744,8 +707,8 @@ namespace bss { namespace thread { namespace STM
       //!}
       
    private:
-      typedef Internal::WDeferredValueCore<Result_t> Core;
-      typedef typename Core::Ptr CorePtr;
+      using Core = Internal::WDeferredValueCore<Result_t>;
+      using CorePtr = std::shared_ptr<Core>;
       WVar<CorePtr> m_core_v;
 
       CorePtr CheckCore (WAtomic& at) const
@@ -786,7 +749,7 @@ namespace bss { namespace thread { namespace STM
       return value;
    }
    
-   WDeferredResult<void> BSS_LIBAPI DoneDeferred ();
+   WDeferredResult<void> WSTM_LIBAPI DoneDeferred ();
    //!}
    
    /**
@@ -802,8 +765,4 @@ namespace bss { namespace thread { namespace STM
       return value;      
    }
    
-}}}
-
-#ifdef WIN32
-#pragma warning (pop)
-#endif
+}
