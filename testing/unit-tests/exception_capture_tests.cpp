@@ -98,6 +98,71 @@ BOOST_AUTO_TEST_CASE (test_copy)
 	BOOST_CHECK_EQUAL(testMsg, excMsg);    
 }
 
+BOOST_AUTO_TEST_CASE (test_assign)
+{
+	const std::string testMsg = "testing 1 2 3";
+   WTestExc captured (testMsg);
+   WExceptionCapture exc (captured);
+	WExceptionCapture exc2;
+   exc2 = exc;
+   bool gotExc = false;
+	std::string excMsg;
+	try
+	{
+		exc2.ThrowCaptured();
+	}
+	catch(WTestExc& testExc)
+	{
+		gotExc = true;
+		excMsg = testExc.m_msg;
+	}
+	BOOST_CHECK(gotExc);
+	BOOST_CHECK_EQUAL(testMsg, excMsg);    
+}
+
+BOOST_AUTO_TEST_CASE (test_move)
+{
+	const std::string testMsg = "testing 1 2 3";
+   WTestExc captured (testMsg);
+   WExceptionCapture exc (captured);
+	WExceptionCapture exc2(std::move (exc));
+   bool gotExc = false;
+	std::string excMsg;
+	try
+	{
+		exc2.ThrowCaptured();
+	}
+	catch(WTestExc& testExc)
+	{
+		gotExc = true;
+		excMsg = testExc.m_msg;
+	}
+	BOOST_CHECK(gotExc);
+	BOOST_CHECK_EQUAL(testMsg, excMsg);    
+}
+
+BOOST_AUTO_TEST_CASE (test_move_assign)
+{
+	const std::string testMsg = "testing 1 2 3";
+   WTestExc captured (testMsg);
+   WExceptionCapture exc (captured);
+	WExceptionCapture exc2;
+   exc2 = std::move (exc);
+   bool gotExc = false;
+	std::string excMsg;
+	try
+	{
+		exc2.ThrowCaptured();
+	}
+	catch(WTestExc& testExc)
+	{
+		gotExc = true;
+		excMsg = testExc.m_msg;
+	}
+	BOOST_CHECK(gotExc);
+	BOOST_CHECK_EQUAL(testMsg, excMsg);    
+}
+
 BOOST_AUTO_TEST_CASE (test_operator_bool)
 {
 	WExceptionCapture w;
