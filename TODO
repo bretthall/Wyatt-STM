@@ -1,3 +1,12 @@
+* DONE Clean-up
+  CLOSED: [2015-11-04 Wed 15:12]
+  - [X] stm
+  - [X] channel
+  - [X] persistent list
+  - [X] exception capture
+  - [X] deferred result
+* add dll vs static switch in cmake file
+  - need to define WSTM_LIBAPI and WSTM_CLASSAPI when in dll mode
 * std::list in WTransactionData
   - vector<std::function> would probably be better
   - we coudl use a "small value optimization" with an array, but we're already allocating in std::function so SVO might not help here
@@ -5,5 +14,3 @@
 * vector of WTransactionData objects instead of linked list?
   - maybe a memory pool instead
 * Does VarMap need to hold WVarCoreBase as a shared_ptr?
-* add dll vs static switch in cmake file
-  - need to define WSTM_LIBAPI and WSTM_CLASSAPI when in dll mode
