@@ -140,9 +140,6 @@ BOOST_AUTO_TEST_CASE (test_operatorBoolReadOnly)
    WReadOnlyChannel<int> ro2 (chan);
    BOOST_CHECK (ro);
 
-#pragma warning (push)
-#pragma warning (disable : 4127)
-   if (true)
    {
       WChannel<int> chan2;
       ro.Init (chan2);
@@ -150,13 +147,11 @@ BOOST_AUTO_TEST_CASE (test_operatorBoolReadOnly)
    BOOST_CHECK (!ro);
 
    std::shared_ptr<WReadOnlyChannel<int> > ro_p;
-   if (true)
    {
       WChannel<int> chan2;
       ro_p.reset (new WReadOnlyChannel<int> (chan2));
    }
    BOOST_CHECK (! (*ro_p));
-#pragma warning (pop)
 }
 
 BOOST_AUTO_TEST_CASE (test_writeSignalReadOnly)
@@ -230,9 +225,6 @@ BOOST_AUTO_TEST_CASE (test_operatorBoolWriter)
    w2.Release ();
    BOOST_CHECK (!w2);
 
-#pragma warning (push)
-#pragma warning (disable : 4127)
-   if (true)
    {
       WChannel<int> chan2;
       w.Init (chan2);
@@ -240,13 +232,11 @@ BOOST_AUTO_TEST_CASE (test_operatorBoolWriter)
    BOOST_CHECK (!w);
 
    std::shared_ptr<WChannelWriter<int> > w_p;
-   if (true)
    {
       WChannel<int> chan2;
       w_p.reset (new WChannelWriter<int> (chan2));
    }
    BOOST_CHECK (! (*w_p));
-#pragma warning (pop)
 }
 
 BOOST_AUTO_TEST_CASE (test_writeWriter)
@@ -513,16 +503,12 @@ BOOST_AUTO_TEST_CASE (test_releaseReadOnlyChannelReader)
 {
    WChannelWriter<int> w;
    WChannelReader<int> reader1;
-#pragma warning (push)
-#pragma warning (disable : 4127)
-   if (true)
    {
       WChannel<int> chan;
       w.Init (chan);
       reader1.Init (chan);
    }
    BOOST_CHECK (w); // make sure that reader still has
-#pragma warning (pop)
 
    // the channel
    reader1.Release ();
@@ -538,17 +524,13 @@ BOOST_AUTO_TEST_CASE (test_releaseReadOnlyChannelReader)
       }
    };
 
-#pragma warning (push)
-#pragma warning (disable : 4127)
    WChannelReader<int> reader2;
-   if (true)
    {
       WChannel<int> chan;
       w.Init (chan);
       reader2.Init (chan);
    }
    BOOST_CHECK (w); // make sure that reader still has
-#pragma warning (pop)
 
    // the channel
    Atomically (boost::bind (Release::run, boost::ref (reader2), _1));
@@ -1166,9 +1148,6 @@ BOOST_AUTO_TEST_CASE (test_stack_overflow_in_dtor)
 {
    //Make sure that we don't get a stack overflow when the last reader
    //goes away and there are lots of unprocessed messages.
-#pragma warning (push)
-#pragma warning (disable : 4127)
-   if (true)
    {
       WChannel<int> chan;
       WChannelReader<int> r1 (chan);
@@ -1179,7 +1158,6 @@ BOOST_AUTO_TEST_CASE (test_stack_overflow_in_dtor)
    }
    //if we get here then the test passed.
    BOOST_CHECK (true);
-#pragma warning (pop)
 }
 
 BOOST_AUTO_TEST_CASE (test_stack_overflow_when_no_readers)

@@ -8,22 +8,15 @@
 
 #include "stm.h"
 
-#pragma warning (push)
-#pragma warning (disable: 4127 4244 4265 4389 4503 4512 4640 6011)
 #include <boost/bind.hpp>
 #include <boost/format.hpp>
 using boost::str;
 using boost::format;
-#include <boost/shared_ptr.hpp>
 #include <boost/test/unit_test.hpp>
 #include <boost/thread/barrier.hpp>
 using boost::barrier;
 #include <boost/timer.hpp>
 using boost::timer;
-#include <boost/type_traits/is_base_of.hpp>
-using boost::is_base_of;
-#include <boost/atomic.hpp>
-#pragma warning (pop)
 
 #include <cstdlib>
 #include <thread>
@@ -127,7 +120,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_DtorCalled)
    //their desatructors called when the WVar is set.
    WSTM::WVar<WVarDtorTester> test (WVarDtorTester (1));
    test.Set (WVarDtorTester (2));
-   BOOST_REQUIRE_EQUAL (3, varDtorDead.size ());
+   BOOST_REQUIRE_EQUAL (size_t (3), varDtorDead.size ());
    BOOST_CHECK_EQUAL (1, varDtorDead[0].first);
    BOOST_CHECK_EQUAL (0, varDtorDead[0].second);
    BOOST_CHECK_EQUAL (1, varDtorDead[1].first);
@@ -537,9 +530,9 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_throw)
    const auto successValue = 428731;
    auto conflictVar = WSTM::WVar<int>(0);
    auto successVar = WSTM::WVar<int>(0);
-   boost::atomic<int> conflicteeCount (0);
-   boost::atomic<int> conflicterCount (0);
-   boost::atomic<int> gotExc (0);
+   std::atomic<int> conflicteeCount (0);
+   std::atomic<int> conflicterCount (0);
+   std::atomic<int> gotExc (0);
    boost::barrier bar1 (2);
    boost::barrier bar2 (2);
    
@@ -605,8 +598,8 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_lock)
    const auto successValue = 428731;
    auto conflictVar = WSTM::WVar<int>(0);
    auto successVar = WSTM::WVar<int>(0);
-   boost::atomic<int> conflicteeCount (0);
-   boost::atomic<int> conflicterCount (0);
+   std::atomic<int> conflicteeCount (0);
+   std::atomic<int> conflicterCount (0);
    boost::barrier bar1 (2);
    boost::barrier bar2 (2);
    
@@ -684,8 +677,8 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_lock_with_sub_trans)
    auto conflictVar = WSTM::WVar<int>(0);
    auto successVar = WSTM::WVar<int>(0);
    auto extraVar = WSTM::WVar<int>(0);
-   boost::atomic<int> conflicteeCount (0);
-   boost::atomic<int> conflicterCount (0);
+   std::atomic<int> conflicteeCount (0);
+   std::atomic<int> conflicterCount (0);
    boost::barrier bar1 (2);
    boost::barrier bar2 (2);
    

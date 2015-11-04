@@ -10,10 +10,7 @@
 #include "persistent_list.h"
 using namespace  WSTM;
 
-// #pragma warning (push)
-// #pragma warning (disable: 4127 4244 4265 4389 4503 4512 4640 6011)
 #include <boost/test/unit_test.hpp>
-// #pragma warning (pop)
 
 BOOST_AUTO_TEST_SUITE (PersistentList)
 
