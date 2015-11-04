@@ -55,6 +55,7 @@ set(UNIT_TEST_SOURCES
   Testing/unit-tests/main.cpp
   Testing/unit-tests/stm_test.cpp
   Testing/unit-tests/channel_tests.cpp
+  Testing/unit-tests/persistent_list_tests.cpp
   Testing/unit-tests/exception_capture_tests.cpp)
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})
