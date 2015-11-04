@@ -20,14 +20,6 @@ BOOST_AUTO_TEST_SUITE (PersistentList)
 namespace
 {
 	using IList = WPersistentList<int>;
-
-   template <typename Iter_t, typename Dist_t>
-   Iter_t Advance (const Iter_t start, const Dist_t d)
-   {
-      auto it = start;
-      std::advance (it, d);
-      return it;
-   }
 }
 			
 BOOST_AUTO_TEST_CASE (test_defaultConstructor)
@@ -552,7 +544,7 @@ BOOST_AUTO_TEST_CASE (test_insert)
 	BOOST_CHECK(old1.checkIter(it1));
 
 	IList old3 = list;
-	IList::iterator it4 = list.insert(Advance (std::begin (list), 2), 2);
+	IList::iterator it4 = list.insert(std::next (std::begin (list), 2), 2);
 	BOOST_CHECK_EQUAL(static_cast<size_t>(3), old3.size());
 	BOOST_CHECK_EQUAL(exp2, old3);				
 	IList exp3 = push_front(0, push_front(1, push_front(2, push_front(3, IList()))));
@@ -568,7 +560,7 @@ BOOST_AUTO_TEST_CASE (test_insert)
 	BOOST_CHECK(old1.checkIter(it1));
 
 	IList list2 = push_front(0, push_front(1, push_front(2, push_front(3, IList()))));
-   BOOST_CHECK_THROW(list2.insert(Advance (std::begin (list), 2), 5), WInvalidIteratorError);
+   BOOST_CHECK_THROW(list2.insert(std::next (std::begin (list), 2), 5), WInvalidIteratorError);
 }
 
 BOOST_AUTO_TEST_CASE (test_replace)
@@ -584,7 +576,7 @@ BOOST_AUTO_TEST_CASE (test_replace)
 	BOOST_CHECK_EQUAL(exp1, list);
 
 	IList old2 = list;
-	IList::iterator it2 = list.replace(Advance (std::begin (list), 1), 2);
+	IList::iterator it2 = list.replace(std::next (std::begin (list), 1), 2);
 	BOOST_CHECK_EQUAL(1, *it1);
 	BOOST_CHECK_EQUAL(2, *it2);				
 	BOOST_CHECK(list.checkIter(it2));
@@ -595,7 +587,7 @@ BOOST_AUTO_TEST_CASE (test_replace)
 	BOOST_CHECK_EQUAL(exp2, list);
 				
 	IList old3 = list;
-	IList::iterator it3 = list.replace(Advance (std::begin (list), 2), 3);
+	IList::iterator it3 = list.replace(std::next (std::begin (list), 2), 3);
 	BOOST_CHECK_EQUAL(1, *it1);
 	BOOST_CHECK_EQUAL(2, *it2);				
 	BOOST_CHECK_EQUAL(3, *it3);				
@@ -608,7 +600,7 @@ BOOST_AUTO_TEST_CASE (test_replace)
 	BOOST_CHECK_EQUAL(exp3, list);
 				
 	IList old4 = list;
-	IList::iterator it4 = list.replace(Advance (std::begin (list), 3), 4);
+	IList::iterator it4 = list.replace(std::next (std::begin (list), 3), 4);
 	BOOST_CHECK_EQUAL(1, *it1);
 	BOOST_CHECK_EQUAL(2, *it2);				
 	BOOST_CHECK_EQUAL(3, *it3);				
@@ -723,7 +715,7 @@ BOOST_AUTO_TEST_CASE (test_erase)
 {
 	IList list = push_front(1, push_front(2, push_front(3, push_front(4, IList()))));
 	IList old1 = list;
-	IList::iterator it1 = list.erase(Advance (std::begin (list), 2));
+	IList::iterator it1 = list.erase(std::next (std::begin (list), 2));
 	BOOST_CHECK_EQUAL(4, *it1);
 	BOOST_CHECK(list.checkIter(it1));
 	IList oldExp = push_front(1, push_front(2, push_front(3, push_front(4, IList()))));
@@ -742,9 +734,7 @@ BOOST_AUTO_TEST_CASE (test_erase)
 	BOOST_CHECK_EQUAL(exp2, list);
 				
 	IList old3 = list;
-   auto eraseIt = std::end (list);
-   --eraseIt;
-	IList::iterator it3 = list.erase(eraseIt);
+	IList::iterator it3 = list.erase(std::prev (std::end (list)));
 	BOOST_CHECK(it3 == list.end());
 	BOOST_CHECK(list.checkIter(it3));
 	BOOST_CHECK(!list.checkIter(it2));
@@ -849,7 +839,7 @@ BOOST_AUTO_TEST_CASE (test_rangeErase)
 	BOOST_CHECK_EQUAL(initial, old);
 
 	list = old;
-	IList::iterator it2 = list.erase(Advance (std::begin (list), 1), Advance (std::begin (list), 3)); 
+	IList::iterator it2 = list.erase(std::next (std::begin (list), 1), std::next (std::begin (list), 3)); 
 	IList exp1 = push_front(1, push_front(4, IList()));
 	BOOST_CHECK(list.checkIter(it2));
 	BOOST_CHECK(!old.checkIter(it2));
@@ -858,7 +848,7 @@ BOOST_AUTO_TEST_CASE (test_rangeErase)
 	BOOST_CHECK_EQUAL(initial, old);
 
 	list = old;
-	IList::iterator it3 = list.erase(Advance (std::begin (list), 1), list.end());
+	IList::iterator it3 = list.erase(std::next (std::begin (list), 1), list.end());
 	BOOST_CHECK(list.checkIter(it3));
 	BOOST_CHECK(!old.checkIter(it3));
 	BOOST_CHECK(it3 == list.end());
@@ -867,7 +857,7 @@ BOOST_AUTO_TEST_CASE (test_rangeErase)
 	BOOST_CHECK_EQUAL(initial, old);
 				
 	list = old;
-	IList::iterator it4 = list.erase(list.begin(), Advance (std::begin (list), 3));
+	IList::iterator it4 = list.erase(list.begin(), std::next (std::begin (list), 3));
 	BOOST_CHECK(list.checkIter(it4));
 	BOOST_CHECK(!old.checkIter(it4));
 	BOOST_CHECK_EQUAL(4, *it4);
@@ -882,15 +872,15 @@ BOOST_AUTO_TEST_CASE (test_checkIter)
 	IList list2 = push_front(1, push_front(2, push_front(3, push_front(4, IList()))));
 
 	BOOST_CHECK(list1.checkIter(list1.begin()));
-	BOOST_CHECK(list1.checkIter(Advance (std::begin (list1), 1)));
-	BOOST_CHECK(list1.checkIter(Advance (std::begin (list1), 2)));
-	BOOST_CHECK(list1.checkIter(Advance (std::begin (list1), 3)));
+	BOOST_CHECK(list1.checkIter(std::next (std::begin (list1), 1)));
+	BOOST_CHECK(list1.checkIter(std::next (std::begin (list1), 2)));
+	BOOST_CHECK(list1.checkIter(std::next (std::begin (list1), 3)));
 	BOOST_CHECK(list1.checkIter(list1.end()));
 
 	BOOST_CHECK(!list1.checkIter(list2.begin()));
-	BOOST_CHECK(!list1.checkIter(Advance (std::begin (list2), 1)));
-	BOOST_CHECK(!list1.checkIter(Advance (std::begin (list2), 2)));
-	BOOST_CHECK(!list1.checkIter(Advance (std::begin (list2), 3)));
+	BOOST_CHECK(!list1.checkIter(std::next (std::begin (list2), 1)));
+	BOOST_CHECK(!list1.checkIter(std::next (std::begin (list2), 2)));
+	BOOST_CHECK(!list1.checkIter(std::next (std::begin (list2), 3)));
 	BOOST_CHECK(!list1.checkIter(list2.end()));
 }
 
