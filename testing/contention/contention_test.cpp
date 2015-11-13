@@ -15,6 +15,7 @@ using namespace WSTM;
 #include <boost/range/numeric.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread/barrier.hpp>
+#include <boost/program_options.hpp>
 
 #include <iostream>
 #include <vector>
@@ -66,24 +67,33 @@ void RunTest (const F_t& f, boost::barrier& bar, const size_t numVars)
 
 int main (int argc, const char** argv)
 {
-   if (argc != 5)
-   {
-      std::cout << "Usage: stm_contenction_test <get/set> <num threads> <time to run for (seconds)> <num vars>" << std::endl;
+   auto numThreads = 0u;
+   auto numVars = 0u;
+   auto durationSecs = 0u;
+   namespace po = boost::program_options;
+   po::options_description desc;
+   desc.add_options ()
+      ("help", "Display help message")
+      ("set,S", "Change variable values instead of just reading them")
+      ("threads,T", po::value<unsigned int>(&numThreads)->default_value (1), "The number of threads to run")
+      ("vars,V", po::value<unsigned int>(&numVars)->default_value (1), "The number of vars to use in each thread")
+      ("duration,D", po::value<unsigned int>(&durationSecs)->default_value (10), "How long to run for in seconds");
+   po::variables_map vm;
+   po::store(po::parse_command_line(argc, argv, desc), vm);
+   po::notify(vm);
+   if (vm.count("help")) {
+      std::cout << desc << std::endl;
       return 1;
    }
-
-   const auto doGet = (std::string (argv[1]) == "get");
-   const auto numThreads = boost::lexical_cast<size_t>(argv[2]);
-   const auto time = boost::lexical_cast<boost::timer::nanosecond_type>(argv[3]);
-   const auto numVars = boost::lexical_cast<size_t>(argv[4]);
-
-   std::cout << "Running " << argv[1] << " operations in " << numThreads << " threads for " << time
+   const auto doSet = vm.count ("set");
+   
+   std::cout << "Running " << (doSet ? "set" : "get") << " operations in " << numThreads << " threads for " << durationSecs
              << " seconds with " << numVars << " vars in each transaction" << std::endl;
    
    boost::barrier bar (numThreads);
 
    auto threads = std::vector<std::thread>();
-   if (doGet)
+   if (!doSet)
    {
       for (auto i = size_t (0); i < numThreads; ++i)
       {
@@ -99,7 +109,7 @@ int main (int argc, const char** argv)
       }
    }
 
-   boost::this_thread::sleep_for (boost::chrono::seconds (time));
+   boost::this_thread::sleep_for (boost::chrono::seconds (durationSecs));
    keepRunning.store (false);
    for (auto& t: threads)
    {
