@@ -11,12 +11,20 @@
 #include "exports.h"
 #include "find_arg.h"
 
+#ifdef WIN32
+//There is a bug in boost::shared_mutex on windows (https://svn.boost.org/trac/boost/ticket/7720),
+//this fixes it but has worse performance than the windows specific implementation. When the issue
+//is fixed (boost 1.60?) we can remove this
+#define BOOST_THREAD_PROVIDES_GENERIC_SHARED_MUTEX_ON_WIN
+#endif //WIN32
+
 #include <boost/variant.hpp>
 #include <boost/format.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/shared_mutex.hpp>
 
 #include <chrono>
+
 
 namespace WSTM
 {

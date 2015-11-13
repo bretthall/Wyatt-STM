@@ -68,3 +68,8 @@ set(CONTENTION_TEST_SOURCES Testing/contention/contention_test.cpp)
 add_executable(contention_tests ${CONTENTION_TEST_SOURCES})
 set_property(TARGET contention_tests PROPERTY CXX_STANDARD 14)
 target_link_libraries(contention_tests wstm)
+
+set(CHANNEL_TEST_SOURCES Testing/channel/channel_test.cpp)
+add_executable(channel_tests ${CHANNEL_TEST_SOURCES})
+set_property(TARGET channel_tests PROPERTY CXX_STANDARD 14)
+target_link_libraries(channel_tests wstm)

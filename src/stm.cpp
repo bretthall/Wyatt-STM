@@ -232,7 +232,9 @@ namespace  WSTM
          int m_count;
          using Lock = typename LockTraits_t::LockType;
          Lock m_lock;
+
 #ifdef _DEBUG
+         std::thread::id m_threadId;
          bool m_writeLocked;
 #endif //_DEBUG
       };
@@ -242,6 +244,7 @@ namespace  WSTM
          m_count(0),
          m_lock(s_readMutex, boost::defer_lock_t())
 #ifdef _DEBUG
+         ,m_threadId (std::this_thread::get_id ())
          ,m_writeLocked(false)
 #endif //_DEBUG
       {
@@ -254,6 +257,7 @@ namespace  WSTM
       template <typename LockTraits_t>
       void WLockImpl<LockTraits_t>::lock()
       {
+         assert (m_threadId == std::this_thread::get_id ());
          if(m_count == 0)
          {
             if(m_lock.owns_lock())
@@ -269,6 +273,7 @@ namespace  WSTM
       template <typename LockTraits_t>
       bool WLockImpl<LockTraits_t>::try_lock()
       {
+         assert (m_threadId == std::this_thread::get_id ());
          if(m_count == 0)
          {
             if(m_lock.owns_lock())
@@ -288,9 +293,16 @@ namespace  WSTM
       template <typename LockTraits_t>
       void WLockImpl<LockTraits_t>::unlock(const int i)
       {
+         assert (m_threadId == std::this_thread::get_id ());
+         if (m_count == 0)
+         {
+            assert (i == 0);
+            return;
+         }
+
          if(!m_lock.owns_lock())
          {
-            return;
+            throw boost::lock_error();
          }
 
          assert(m_count >= i);
@@ -306,12 +318,14 @@ namespace  WSTM
       template <typename LockTraits_t>
       void WLockImpl<LockTraits_t>::UnlockAll ()
       {
+         assert (m_threadId == std::this_thread::get_id ());
          unlock (m_count);
       }
       
       template <typename LockTraits_t>
       bool WLockImpl<LockTraits_t>::WaitForCommit(const WTimeArg& timeout)
       {
+         assert (m_threadId == std::this_thread::get_id ());
          if(!m_lock.owns_lock())
          {
             throw boost::lock_error();
