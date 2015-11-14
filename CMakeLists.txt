@@ -73,3 +73,8 @@ set(CHANNEL_TEST_SOURCES Testing/channel/channel_test.cpp)
 add_executable(channel_tests ${CHANNEL_TEST_SOURCES})
 set_property(TARGET channel_tests PROPERTY CXX_STANDARD 14)
 target_link_libraries(channel_tests wstm)
+
+set(CORRECTNESS_TEST_SOURCES Testing/correctness/correctness_test.cpp)
+add_executable(correctness_tests ${CORRECTNESS_TEST_SOURCES})
+set_property(TARGET correctness_tests PROPERTY CXX_STANDARD 14)
+target_link_libraries(correctness_tests wstm)
