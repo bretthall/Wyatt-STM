@@ -55,7 +55,7 @@ WUpdatorInt::WUpdatorInt ():
 PostUpdateFunc WUpdatorInt::Update (WAtomic& at)
 {
    m_value_v.Set (m_value_v.Get (at) + 1, at);
-   return [expected_p = m_expected_p](){++(*expected_p);};   
+   return [expected_p = m_expected_p](){expected_p->fetch_add (1);};   
 }
 
 struct WBadIntError
@@ -66,9 +66,11 @@ struct WBadIntError
 
 void WUpdatorInt::CheckValue () const
 {
-   if (m_value_v.GetReadOnly () != *m_expected_p)
+   const auto expected = m_expected_p->load ();
+   const auto value = m_value_v.GetReadOnly ();
+   if (value != expected)
    {
-      throw WBadIntError {*m_expected_p, m_value_v.GetReadOnly ()};
+      throw WBadIntError {expected, value};
    }
 }
 
@@ -80,7 +82,8 @@ struct WContext
    unsigned int m_maxThreads;
    unsigned int m_maxVars;
    unsigned int m_durationSecs;
-
+   unsigned int m_exitSpawnChance;
+   
    std::atomic<unsigned int> m_numThreads;
    
    std::atomic<bool> m_pause;
@@ -153,18 +156,19 @@ WContext::VarVecConstPtr WContext::GetVars ()
 bool UpdateVars (WContext& context, std::mt19937& mt)
 {
    const auto vars_p = context.GetVars ();
-   auto dist = std::uniform_int_distribution<unsigned int>(0, vars_p->size ());
+   auto dist = std::uniform_int_distribution<unsigned int>(0, vars_p->size () - 1);
    const auto numChanges = 2*dist (mt);
    auto changes = WContext::VarVec (numChanges);
    std::generate (std::begin (changes), std::end (changes), [&](){return (*vars_p)[dist (mt)];});
-   auto postUpdates = std::vector<PostUpdateFunc>();
-   postUpdates.reserve (numChanges);
-   Atomically ([&](WAtomic& at)
-               {
-                  std::transform (std::begin (changes), std::end (changes),
-                                  std::back_inserter (postUpdates),
-                                  [&](const auto& change_p){return change_p->Update (at);});
-               });
+   auto postUpdates = Atomically ([&](WAtomic& at)
+                                  {
+                                     auto postUpdates = std::vector<PostUpdateFunc>();
+                                     postUpdates.reserve (numChanges);
+                                     std::transform (std::begin (changes), std::end (changes),
+                                                     std::back_inserter (postUpdates),
+                                                     [&](const auto& change_p){return change_p->Update (at);});
+                                     return postUpdates;
+                                  });
    for (auto& update: postUpdates)
    {
       update ();
@@ -173,9 +177,9 @@ bool UpdateVars (WContext& context, std::mt19937& mt)
    return false;
 }
 
-bool MaybeExitThread (WContext&, std::mt19937& mt)
+bool MaybeExitThread (WContext& context, std::mt19937& mt)
 {
-   auto exitDist = std::uniform_int_distribution<unsigned int>(0, 1000);
+   auto exitDist = std::uniform_int_distribution<unsigned int>(0, context.m_exitSpawnChance);
    return (exitDist (mt) == 0);
 }
 
@@ -195,7 +199,7 @@ void StartThread (WContext& context)
 
 bool MaybeSpawnThread  (WContext& context, std::mt19937& mt)
 {
-   auto startDist = std::uniform_int_distribution<unsigned int>(0, 1000);
+   auto startDist = std::uniform_int_distribution<unsigned int>(0, context.m_exitSpawnChance);
    if (startDist (mt) == 0)
    {
       StartThread (context);
@@ -210,7 +214,7 @@ const std::vector<Action> actions = {UpdateVars, MaybeExitThread, MaybeSpawnThre
 void RunTest (WContext& context)
 {
    auto mt = std::mt19937 (std::random_device ()());
-   auto actionDist = std::uniform_int_distribution<unsigned int>(0, actions.size ());
+   auto actionDist = std::uniform_int_distribution<unsigned int>(0, actions.size () - 1);
    
    for (;;)
    {
@@ -245,7 +249,9 @@ int main (int argc, const char** argv)
       ("minThreads,t", po::value<unsigned int>(&context.m_minThreads)->default_value (1), "The minimum number of threads to run")
       ("maxThreads,T", po::value<unsigned int>(&context.m_maxThreads)->default_value (2*numHWThreads), "The maximum number of threads to run")
       ("maxVars,V", po::value<unsigned int>(&context.m_maxVars)->default_value (20), "The maximum number of vars to use")
-      ("duration,D", po::value<unsigned int>(&context.m_durationSecs)->default_value (10), "The number of seconds between checkpoints");
+      ("duration,D", po::value<unsigned int>(&context.m_durationSecs)->default_value (10), "The number of seconds between checkpoints")
+      ("chance,C", po::value<unsigned int>(&context.m_exitSpawnChance)->default_value (500),
+       "The chance that a thread will exit or a new thread will start on any given thread iteration (1 in C chance)");
    po::variables_map vm;
    po::store(po::parse_command_line(argc, argv, desc), vm);
    po::notify(vm);
@@ -267,7 +273,7 @@ int main (int argc, const char** argv)
                           vars_p = newVars_p;
                        });
                        
-   const auto numThreads = context.m_maxThreads/2;
+   const auto numThreads = context.m_maxThreads/2 + 1;
    for (unsigned int i = 0; i < numThreads; ++i)
    {
       StartThread (context);
