@@ -74,6 +74,45 @@ void WUpdatorInt::CheckValue () const
    }
 }
 
+class WUpdatorAfter : public WUpdator
+{
+public:
+   WUpdatorAfter ();
+   virtual PostUpdateFunc Update (WAtomic& at) override;
+   virtual void CheckValue () const override;
+
+private:
+   std::atomic<unsigned int> m_value;
+   std::shared_ptr<std::atomic<unsigned int>> m_expected_p;
+};
+
+WUpdatorAfter::WUpdatorAfter ():
+   m_value (0),
+   m_expected_p (std::make_shared<std::atomic<unsigned int>>(0))
+{}
+
+PostUpdateFunc WUpdatorAfter::Update (WAtomic& at)
+{
+   at.After ([&](){m_value.fetch_add (1);});
+   return [expected_p = m_expected_p](){expected_p->fetch_add (1);};   
+}
+
+struct WBadAfterError
+{   
+   unsigned int m_expected;
+   unsigned int m_actual;
+};
+
+void WUpdatorAfter::CheckValue () const
+{
+   const auto expected = m_expected_p->load ();
+   const auto value = m_value.load ();
+   if (value != expected)
+   {
+      throw WBadAfterError {expected, value};
+   }
+}
+
 struct WContext
 {
    WContext ();
@@ -229,6 +268,8 @@ void RunTest (WContext& context)
          if (oldNumThreads > context.m_minThreads)
          {
             //we weren't the only thread running so exit
+
+            //need to notify the validation thread in case we're the last thread that it is waiting for
             std::lock_guard<std::mutex> lock (context.m_pauseMutex);
             context.m_threadPausedCondition.notify_one ();
             return;
@@ -249,8 +290,8 @@ int main (int argc, const char** argv)
       ("minThreads,t", po::value<unsigned int>(&context.m_minThreads)->default_value (1), "The minimum number of threads to run")
       ("maxThreads,T", po::value<unsigned int>(&context.m_maxThreads)->default_value (2*numHWThreads), "The maximum number of threads to run")
       ("maxVars,V", po::value<unsigned int>(&context.m_maxVars)->default_value (20), "The maximum number of vars to use")
-      ("duration,D", po::value<unsigned int>(&context.m_durationSecs)->default_value (10), "The number of seconds between checkpoints")
-      ("chance,C", po::value<unsigned int>(&context.m_exitSpawnChance)->default_value (500),
+      ("duration,D", po::value<unsigned int>(&context.m_durationSecs)->default_value (5), "The number of seconds between checkpoints")
+      ("chance,C", po::value<unsigned int>(&context.m_exitSpawnChance)->default_value (20),
        "The chance that a thread will exit or a new thread will start on any given thread iteration (1 in C chance)");
    po::variables_map vm;
    po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -265,11 +306,18 @@ int main (int argc, const char** argv)
    std::cout << "\tmaxThreads = " << context.m_maxThreads << std::endl;
    std::cout << "\tmaxVars = " << context.m_maxVars << std::endl;
    std::cout << "\tduration = " << context.m_durationSecs << std::endl;
-   
+
+
    context.UpdateVars ([&](auto& vars_p)
                        {
                           auto newVars_p = std::make_shared<WContext::VarVec>(context.m_maxVars/2);
                           std::generate (std::begin (*newVars_p), std::end (*newVars_p), [](){return std::make_shared<WUpdatorInt>();});
+
+                          auto mt = std::mt19937 (std::random_device ()());
+                          auto dist = std::uniform_int_distribution<unsigned int>(0, newVars_p->size () - 1);
+                          (*newVars_p)[dist (mt)] = std::make_shared<WUpdatorAfter>();
+                          (*newVars_p)[dist (mt)] = std::make_shared<WUpdatorAfter>();
+                          (*newVars_p)[dist (mt)] = std::make_shared<WUpdatorAfter>();                          
                           vars_p = newVars_p;
                        });
                        
