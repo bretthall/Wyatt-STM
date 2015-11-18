@@ -31,26 +31,53 @@ using PostUpdateFunc = std::function<void ()>;
 class WUpdator
 {
 public:
+   virtual void Read (WInconsistent& i);
    virtual PostUpdateFunc Update (WAtomic& at) = 0;
    virtual void CheckValue () const = 0;
 };
+
+void WUpdator::Read (WInconsistent&)
+{}
 
 class WUpdatorInt : public WUpdator
 {
 public:
    WUpdatorInt ();
+   virtual void Read (WInconsistent& i);
    virtual PostUpdateFunc Update (WAtomic& at) override;
    virtual void CheckValue () const override;
 
 private:
+   std::atomic<unsigned int> m_lastInconsistentValue;
    WVar<unsigned int> m_value_v;
    std::shared_ptr<std::atomic<unsigned int>> m_expected_p;
 };
 
 WUpdatorInt::WUpdatorInt ():
+   m_lastInconsistentValue (0),
    m_value_v (0),
    m_expected_p (std::make_shared<std::atomic<unsigned int>>(0))
 {}
+
+struct WBadInconsistentValue
+{   
+   unsigned int m_last;
+   unsigned int m_current;
+};
+
+void WUpdatorInt::Read (WInconsistent& i)
+{
+   auto last = m_lastInconsistentValue.load ();
+   const auto value = m_value_v.GetInconsistent (i);
+   if (value < last)
+   {
+      //the vars only increase in value so we should never see a value that is less than the last we saw
+      throw WBadInconsistentValue {last, value};
+   }
+   //update the last value unless someone else has already put in a value larger than ours
+   while ((last < value) && !m_lastInconsistentValue.compare_exchange_strong (last, value))
+   {}
+}
 
 PostUpdateFunc WUpdatorInt::Update (WAtomic& at)
 {
@@ -216,6 +243,24 @@ bool UpdateVars (WContext& context, std::mt19937& mt)
    return false;
 }
 
+bool ReadInconsitent (WContext& context, std::mt19937& mt)
+{
+   const auto vars_p = context.GetVars ();
+   auto dist = std::uniform_int_distribution<unsigned int>(0, vars_p->size () - 1);
+   const auto numReads = 2*dist (mt);
+   auto reads = WContext::VarVec (numReads);
+   std::generate (std::begin (reads), std::end (reads), [&](){return (*vars_p)[dist (mt)];});
+   Inconsistently ([&](WInconsistent& i)
+                   {
+                      for (const auto& read_p: reads)
+                      {
+                         read_p->Read (i);
+                      }
+                   });
+
+   return false;
+}
+
 bool MaybeExitThread (WContext& context, std::mt19937& mt)
 {
    auto exitDist = std::uniform_int_distribution<unsigned int>(0, context.m_exitSpawnChance);
@@ -248,7 +293,7 @@ bool MaybeSpawnThread  (WContext& context, std::mt19937& mt)
 }
 
 using Action = std::function<bool (WContext&, std::mt19937&)>;
-const std::vector<Action> actions = {UpdateVars, MaybeExitThread, MaybeSpawnThread};
+const std::vector<Action> actions = {UpdateVars, ReadInconsitent, MaybeExitThread, MaybeSpawnThread};
    
 void RunTest (WContext& context)
 {
