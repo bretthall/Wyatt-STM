@@ -17,6 +17,7 @@ using boost::str;
 #include <atomic>
 #include <mutex>
 #include <list>
+#include <thread>
 
 //Define this to turn on stm profiling
 //#define STM_PROFILING
