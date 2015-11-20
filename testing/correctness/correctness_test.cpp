@@ -437,6 +437,7 @@ int main (int argc, const char** argv)
    std::cout << "Starting run:" << std::endl;
    std::cout << "\tminThreads = " << context.m_minThreads << std::endl;
    std::cout << "\tmaxThreads = " << context.m_maxThreads << std::endl;
+   std::cout << "\tminVars = " << context.m_minVars << std::endl;
    std::cout << "\tmaxVars = " << context.m_maxVars << std::endl;
    std::cout << "\tduration = " << context.m_durationSecs << std::endl;
 
