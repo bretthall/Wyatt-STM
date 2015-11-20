@@ -145,6 +145,7 @@ struct WContext
    
    unsigned int m_minThreads;
    unsigned int m_maxThreads;
+   unsigned int m_minVars;
    unsigned int m_maxVars;
    unsigned int m_durationSecs;
    unsigned int m_exitSpawnChance;
@@ -174,7 +175,7 @@ struct WContext
    void UpdateVars (Func_t&& func)
    {
       std::lock_guard<std::mutex> lock (m_varsMutex);
-      func (m_vars_p);
+      m_vars_p = func (m_vars_p);
    }
 };
 
@@ -292,6 +293,61 @@ bool RetryOnVars (WContext& context, std::mt19937& mt)
    return false;
 }
 
+bool MaybeRemoveVar (WContext& context, std::mt19937& mt)
+{
+   auto dist = std::uniform_int_distribution<unsigned int>(0, context.m_exitSpawnChance);
+   if (dist (mt) == 0)
+   {
+      context.UpdateVars ([&context, &mt](auto& vars_p) -> WContext::VarVecConstPtr
+                          {
+                             if (vars_p->size () > context.m_minVars)
+                             {
+                                auto newVars_p = std::make_shared<WContext::VarVec>(*vars_p);
+                                auto dist = std::uniform_int_distribution<unsigned int>(0, vars_p->size () - 1);
+                                newVars_p->erase (std::begin (*newVars_p) + dist (mt));
+                                return newVars_p;
+                             }
+                             else
+                             {
+                                return vars_p;
+                             }
+                          });
+   }
+
+   return false;
+}
+
+bool MaybeAddVar (WContext& context, std::mt19937& mt)
+{
+   auto dist = std::uniform_int_distribution<unsigned int>(0, context.m_exitSpawnChance);
+   if (dist (mt) == 0)
+   {
+      context.UpdateVars ([&context, &mt](auto& vars_p) -> WContext::VarVecConstPtr
+                          {
+                             if (vars_p->size () < context.m_maxVars)
+                             {
+                                auto newVars_p = std::make_shared<WContext::VarVec>(*vars_p);
+                                auto dist = std::uniform_int_distribution<unsigned int>(0, 2);
+                                if (dist (mt) == 0)
+                                {
+                                   newVars_p->push_back (std::make_shared<WUpdatorAfter>());
+                                }
+                                else
+                                {
+                                   newVars_p->push_back (std::make_shared<WUpdatorInt>());                                   
+                                }
+                                return newVars_p;
+                             }
+                             else
+                             {
+                                return vars_p;
+                             }
+                          });
+   }
+
+   return false;
+}
+
 bool MaybeExitThread (WContext& context, std::mt19937& mt)
 {
    auto exitDist = std::uniform_int_distribution<unsigned int>(0, context.m_exitSpawnChance);
@@ -324,7 +380,7 @@ bool MaybeSpawnThread  (WContext& context, std::mt19937& mt)
 }
 
 using Action = std::function<bool (WContext&, std::mt19937&)>;
-const std::vector<Action> actions = {UpdateVars, ReadInconsitent, RetryOnVars, MaybeExitThread, MaybeSpawnThread};
+const std::vector<Action> actions = {UpdateVars, ReadInconsitent, RetryOnVars, MaybeRemoveVar, MaybeAddVar, MaybeExitThread, MaybeSpawnThread};
    
 void RunTest (WContext& context)
 {
@@ -365,6 +421,7 @@ int main (int argc, const char** argv)
       ("help", "Display help message")
       ("minThreads,t", po::value<unsigned int>(&context.m_minThreads)->default_value (1), "The minimum number of threads to run")
       ("maxThreads,T", po::value<unsigned int>(&context.m_maxThreads)->default_value (2*numHWThreads), "The maximum number of threads to run")
+      ("minVars,V", po::value<unsigned int>(&context.m_minVars)->default_value (5), "The minimum number of vars to use")
       ("maxVars,V", po::value<unsigned int>(&context.m_maxVars)->default_value (20), "The maximum number of vars to use")
       ("duration,D", po::value<unsigned int>(&context.m_durationSecs)->default_value (5), "The number of seconds between checkpoints")
       ("chance,C", po::value<unsigned int>(&context.m_exitSpawnChance)->default_value (20),
@@ -384,9 +441,9 @@ int main (int argc, const char** argv)
    std::cout << "\tduration = " << context.m_durationSecs << std::endl;
 
 
-   context.UpdateVars ([&](auto& vars_p)
+   context.UpdateVars ([&](const auto&)
                        {
-                          auto newVars_p = std::make_shared<WContext::VarVec>(context.m_maxVars/2);
+                          auto newVars_p = std::make_shared<WContext::VarVec>(std::max (context.m_maxVars/2, context.m_minVars));
                           std::generate (std::begin (*newVars_p), std::end (*newVars_p), [](){return std::make_shared<WUpdatorInt>();});
 
                           auto mt = std::mt19937 (std::random_device ()());
@@ -394,10 +451,10 @@ int main (int argc, const char** argv)
                           (*newVars_p)[dist (mt)] = std::make_shared<WUpdatorAfter>();
                           (*newVars_p)[dist (mt)] = std::make_shared<WUpdatorAfter>();
                           (*newVars_p)[dist (mt)] = std::make_shared<WUpdatorAfter>();                          
-                          vars_p = newVars_p;
+                          return newVars_p;
                        });
                        
-   const auto numThreads = context.m_maxThreads/2 + 1;
+   const auto numThreads = std::max (context.m_maxThreads/2 + 1, context.m_minThreads);
    for (unsigned int i = 0; i < numThreads; ++i)
    {
       StartThread (context);
