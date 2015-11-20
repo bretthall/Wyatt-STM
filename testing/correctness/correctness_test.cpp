@@ -21,7 +21,6 @@ using boost::str;
 #include <condition_variable>
 #include <atomic>
 #include <iostream>
-#include <iostream>
 #include <functional>
 #include <algorithm>
 #include <random>
@@ -261,6 +260,38 @@ bool ReadInconsitent (WContext& context, std::mt19937& mt)
    return false;
 }
 
+bool RetryOnVars (WContext& context, std::mt19937& mt)
+{
+   const auto vars_p = context.GetVars ();
+   auto dist = std::uniform_int_distribution<unsigned int>(0, vars_p->size () - 1);
+   const auto numReads = 2*dist (mt);
+   auto vars = WContext::VarVec (numReads);
+   std::generate (std::begin (vars), std::end (vars), [&](){return (*vars_p)[dist (mt)];});
+   auto tried = false;
+   try
+   {
+      Atomically ([&](WAtomic& at)
+                  {
+                     if (!tried)
+                     {
+                        tried = true;
+                        for (const auto& var_p: vars)
+                        {
+                           //NOTE: we aren't capturing the post-update actions here, when we retry
+                           //we should be rolling back what was done in the update and thus
+                           //shouldn't need to run the post-update actions
+                           var_p->Update (at);
+                        }
+                        Retry (at, std::chrono::milliseconds (200));
+                     }
+                  });
+   }
+   catch (WRetryTimeoutException&)
+   {}
+   
+   return false;
+}
+
 bool MaybeExitThread (WContext& context, std::mt19937& mt)
 {
    auto exitDist = std::uniform_int_distribution<unsigned int>(0, context.m_exitSpawnChance);
@@ -293,7 +324,7 @@ bool MaybeSpawnThread  (WContext& context, std::mt19937& mt)
 }
 
 using Action = std::function<bool (WContext&, std::mt19937&)>;
-const std::vector<Action> actions = {UpdateVars, ReadInconsitent, MaybeExitThread, MaybeSpawnThread};
+const std::vector<Action> actions = {UpdateVars, ReadInconsitent, RetryOnVars, MaybeExitThread, MaybeSpawnThread};
    
 void RunTest (WContext& context)
 {
