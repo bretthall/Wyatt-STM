@@ -421,7 +421,7 @@ int main (int argc, const char** argv)
       ("help", "Display help message")
       ("minThreads,t", po::value<unsigned int>(&context.m_minThreads)->default_value (1), "The minimum number of threads to run")
       ("maxThreads,T", po::value<unsigned int>(&context.m_maxThreads)->default_value (2*numHWThreads), "The maximum number of threads to run")
-      ("minVars,V", po::value<unsigned int>(&context.m_minVars)->default_value (5), "The minimum number of vars to use")
+      ("minVars,v", po::value<unsigned int>(&context.m_minVars)->default_value (5), "The minimum number of vars to use")
       ("maxVars,V", po::value<unsigned int>(&context.m_maxVars)->default_value (20), "The maximum number of vars to use")
       ("duration,D", po::value<unsigned int>(&context.m_durationSecs)->default_value (5), "The number of seconds between checkpoints")
       ("chance,C", po::value<unsigned int>(&context.m_exitSpawnChance)->default_value (20),
