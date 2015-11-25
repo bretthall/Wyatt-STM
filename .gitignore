@@ -1,3 +1,5 @@
 build
 debug
 release
+gcc_debug
+gcc_release
