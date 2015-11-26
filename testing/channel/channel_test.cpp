@@ -43,7 +43,7 @@ void DecrementCount (WVar<unsigned int>& count_v, WAtomic& at)
 
 auto MakeReaderFactory (std::uniform_int_distribution<unsigned int>& exitDist, WChannelReader<int> reader, WVar<unsigned int>& numReaders_v, WVar<bool>& done_v)
 {
-   return [&exitDist, reader, &numReaders_v, &done_v]
+   return [&exitDist, reader, &numReaders_v, &done_v]() mutable
    {
       Atomically ([&](WAtomic& at){numReaders_v.Set (numReaders_v.Get (at) + 1, at);});
       
@@ -101,8 +101,8 @@ auto MakeWriterFactory (std::uniform_int_distribution<unsigned int>& exitDist,
 
 namespace
 {
-   const auto defaultExitChance = unsigned int(1000);
-   const auto defaultDuration = 10;
+   const auto defaultExitChance = 1000u;
+   const auto defaultDuration = 10u;
 }
 
 int main (int argc, const char** argv)

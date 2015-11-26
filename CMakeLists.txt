@@ -4,7 +4,7 @@ project(wyatt-stm)
 if (APPLE OR WIN32)
   set(Boost_USE_STATIC_LIBS ON)
 endif()
-find_package(Boost 1.57 REQUIRED COMPONENTS)
+find_package(Boost 1.57 REQUIRED COMPONENTS thread program_options system unit_test_framework)
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
     set(warnings "-Wall -Wextra -Werror")
@@ -35,10 +35,6 @@ endif()
 include_directories(wstm SYSTEM ${Boost_INCLUDE_DIRS})
 link_directories(${Boost_LIBRARY_DIRS})
 
-#use this when all the files are fixed
-#file(GLOB WSTM_SOURCES "src/*.cpp")
-
-#for now add source files by hand
 set(WSTM_SOURCES
   src/stm.cpp
   src/channel.cpp
@@ -48,10 +44,6 @@ set(WSTM_SOURCES
 add_library(wstm ${WSTM_SOURCES})
 set_property(TARGET wstm PROPERTY CXX_STANDARD 14)
 
-#use this when all the files are fixed
-#file(GLOB UNIT_TEST_SOURCES "Testing/unit-tests/*.cpp")
-
-#for now add source files by hand
 set(UNIT_TEST_SOURCES
   Testing/unit-tests/main.cpp
   Testing/unit-tests/stm_test.cpp
@@ -62,19 +54,19 @@ set(UNIT_TEST_SOURCES
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})
 set_property(TARGET unit_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(unit_tests wstm)
+target_link_libraries(unit_tests wstm ${Boost_LIBRARIES})
 
 set(CONTENTION_TEST_SOURCES Testing/contention/contention_test.cpp)
 add_executable(contention_tests ${CONTENTION_TEST_SOURCES})
 set_property(TARGET contention_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(contention_tests wstm)
+target_link_libraries(contention_tests wstm ${Boost_LIBRARIES})
 
 set(CHANNEL_TEST_SOURCES Testing/channel/channel_test.cpp)
 add_executable(channel_tests ${CHANNEL_TEST_SOURCES})
 set_property(TARGET channel_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(channel_tests wstm)
+target_link_libraries(channel_tests wstm ${Boost_LIBRARIES})
 
 set(CORRECTNESS_TEST_SOURCES Testing/correctness/correctness_test.cpp)
 add_executable(correctness_tests ${CORRECTNESS_TEST_SOURCES})
 set_property(TARGET correctness_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(correctness_tests wstm)
+target_link_libraries(correctness_tests wstm ${Boost_LIBRARIES})

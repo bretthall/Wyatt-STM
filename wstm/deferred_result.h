@@ -238,7 +238,8 @@ namespace WSTM
        */
       WDeferredValue& operator= (const WDeferredValue& value)
       {
-         m_core_p = value.m_core_p;
+         //gcc requires "this"
+         this->m_core_p = value.m_core_p;
          return *this;
       }
 
@@ -258,7 +259,8 @@ namespace WSTM
       
       void Done (const Result_t& res, WAtomic& at)
       {
-         m_core_p->Done (res, at);
+         //gcc requires "this"
+         this->m_core_p->Done (res, at);
       }
       //!}
    };

@@ -690,7 +690,7 @@ namespace WSTM
    */
    template <typename Op_t, typename ... Options_t>
    auto Atomically (const Op_t& op, const Options_t&... options) -> 
-      typename std::enable_if<std::is_same<void, decltype (op (std::declval<WAtomic>()))>::value, void>::type
+      typename std::enable_if<std::is_same<void, decltype (op (std::declval<WAtomic&>()))>::value, void>::type
    {
       auto voidOp = Internal::MakeVoidOp<WAtomic> (op);
       WAtomic::AtomicallyImpl(voidOp, findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
@@ -698,7 +698,7 @@ namespace WSTM
                    
    template <typename Op_t, typename ... Options_t>
    auto Atomically (const Op_t& op, const Options_t&... options) -> 
-      typename std::enable_if<!std::is_same<void, decltype (op (std::declval<WAtomic>()))>::value, decltype (op (std::declval<WAtomic>()))>::type
+      typename std::enable_if<!std::is_same<void, decltype (op (std::declval<WAtomic&>()))>::value, decltype (op (std::declval<WAtomic&>()))>::type
    {
       auto valOp = Internal::MakeValOp<WAtomic> (op);
       WAtomic::AtomicallyImpl(valOp, findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
