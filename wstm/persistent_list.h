@@ -17,6 +17,7 @@
 #include <stack>
 #include <list>
 #include <memory>
+#include <algorithm>
 
 namespace WSTM 
 {
@@ -1059,7 +1060,7 @@ std::ostream& operator<<(std::ostream& out, const WPersistentList<Value_t>& l)
    if(!l.empty())
    {
       out << l.front();
-      for(WPersistentList<Value_t>::const_forward_iterator it = ++l.fbegin(); it != l.fend(); ++it)
+      for(auto it = ++l.fbegin(); it != l.fend(); ++it)
       {
          out << "," << *it;
       }

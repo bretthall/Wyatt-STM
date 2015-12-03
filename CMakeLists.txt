@@ -4,7 +4,7 @@ project(wyatt-stm)
 if (APPLE OR WIN32)
   set(Boost_USE_STATIC_LIBS ON)
 endif()
-find_package(Boost 1.57 REQUIRED COMPONENTS thread program_options system unit_test_framework)
+find_package(Boost 1.57 REQUIRED COMPONENTS thread program_options system unit_test_framework timer)
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
     set(warnings "-Wall -Wextra -Werror")
@@ -25,11 +25,23 @@ elseif ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
      endif()
      add_definitions(-DWIN32)
 endif()
+
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+  set(clang_stdlib_flag "-stdlib=libc++")
+  set(clang_stdlib_lib "c++abi")
+  set(pthread_lib "pthread")
+endif()
+
 if (NOT CONFIGURED_ONCE)
-    set(CMAKE_CXX_FLAGS "${warnings}"
+    set(CMAKE_CXX_FLAGS "${warnings} ${clang_stdlib_flag}"
         CACHE STRING "Flags used by the compiler during all build types." FORCE)
     set(CMAKE_C_FLAGS   "${warnings}"
         CACHE STRING "Flags used by the compiler during all build types." FORCE)
+endif()
+
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+  set(pthread_lib "pthread")
+  add_definitions(-DBOOST_TEST_DYN_LINK)
 endif()
 
 include_directories(wstm SYSTEM ${Boost_INCLUDE_DIRS})
@@ -45,28 +57,28 @@ add_library(wstm ${WSTM_SOURCES})
 set_property(TARGET wstm PROPERTY CXX_STANDARD 14)
 
 set(UNIT_TEST_SOURCES
-  Testing/unit-tests/main.cpp
-  Testing/unit-tests/stm_test.cpp
-  Testing/unit-tests/channel_tests.cpp
-  Testing/unit-tests/persistent_list_tests.cpp
-  Testing/unit-tests/deferred_result_tests.cpp
-  Testing/unit-tests/exception_capture_tests.cpp)
+  testing/unit-tests/main.cpp
+  testing/unit-tests/stm_test.cpp
+  testing/unit-tests/channel_tests.cpp
+  testing/unit-tests/persistent_list_tests.cpp
+  testing/unit-tests/deferred_result_tests.cpp
+  testing/unit-tests/exception_capture_tests.cpp)
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})
 set_property(TARGET unit_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(unit_tests wstm ${Boost_LIBRARIES})
+target_link_libraries(unit_tests wstm ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
 
-set(CONTENTION_TEST_SOURCES Testing/contention/contention_test.cpp)
+set(CONTENTION_TEST_SOURCES testing/contention/contention_test.cpp)
 add_executable(contention_tests ${CONTENTION_TEST_SOURCES})
 set_property(TARGET contention_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(contention_tests wstm ${Boost_LIBRARIES})
+target_link_libraries(contention_tests wstm ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
 
-set(CHANNEL_TEST_SOURCES Testing/channel/channel_test.cpp)
+set(CHANNEL_TEST_SOURCES testing/channel/channel_test.cpp)
 add_executable(channel_tests ${CHANNEL_TEST_SOURCES})
 set_property(TARGET channel_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(channel_tests wstm ${Boost_LIBRARIES})
+target_link_libraries(channel_tests wstm ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
 
-set(CORRECTNESS_TEST_SOURCES Testing/correctness/correctness_test.cpp)
+set(CORRECTNESS_TEST_SOURCES testing/correctness/correctness_test.cpp)
 add_executable(correctness_tests ${CORRECTNESS_TEST_SOURCES})
 set_property(TARGET correctness_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(correctness_tests wstm ${Boost_LIBRARIES})
+target_link_libraries(correctness_tests wstm ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})

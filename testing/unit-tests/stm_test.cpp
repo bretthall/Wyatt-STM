@@ -204,7 +204,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_conflict)
       const auto old1 = v1.GetReadOnly ();
       const auto old2 = v2.GetReadOnly ();
       
-      std::atomic<int> repeat1 = 0;
+      std::atomic<int> repeat1 (0);
       std::thread t1 ([&]()
          {
             WSTM::Atomically ([&](WSTM::WAtomic& at)
@@ -216,7 +216,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_conflict)
             barrier.wait ();
          });
 
-		std::atomic<int> repeat2 = 0;
+		std::atomic<int> repeat2 (0);
       std::thread t2 ([&]()
          {
             WSTM::Atomically ([&](WSTM::WAtomic& at)

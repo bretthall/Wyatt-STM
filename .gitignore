@@ -3,3 +3,5 @@ debug
 release
 gcc_debug
 gcc_release
+clang-*
+gcc-*

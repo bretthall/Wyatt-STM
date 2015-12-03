@@ -567,32 +567,27 @@ namespace WSTM
       template <typename Trans_t, typename Op_t, typename Result_t>
       struct WValOp <Trans_t, Op_t, Result_t, false> : public WStmOp<Trans_t>
       {
-         using Res_t = typename boost::remove_const<Result_t>::type;
+         using Res_t = typename std::remove_const<Result_t>::type;
 			
-         WValOp(Op_t& op): m_op(op) {}
+         WValOp(Op_t& op): m_op_p(&op) {}
 
          virtual void Run (Trans_t& t) override
          {
-            m_res = m_op(t);
+            m_res = (*m_op_p)(t);
          }
 
          Result_t GetResult()
          {
-            return std::move (boost::get<Res_t>(m_res));
+            return std::move (*m_res);
          }
 
-         //Using a variant to store either a WEmpty or the result. WEmpty is the default so that we
-         //don't have to require Result_t to have a default constructor. We also move into the
-         //variant so that we can handle "move-only" objects.
-         struct WEmpty
-         {};
-         using Result = boost::variant<WEmpty, Res_t>;
+         //Using an optional to store the result so that we don't have to require Result_t to have a
+         //default constructor. We also move into the variant so that we can handle "move-only"
+         //objects.
+         using Result = boost::optional<Res_t>;
          
-         Op_t& m_op;
+         Op_t* m_op_p;
          Result m_res;
-  
-      private:
-         WValOp& operator= (const WValOp&) { return *this; }   // Silence warning 4512.
       };
 
       template <typename Trans_t, typename Op_t>
@@ -800,7 +795,7 @@ namespace WSTM
    */
    template <typename Op_t>
    auto Inconsistently(const Op_t& op, NO_ATOMIC) ->
-      typename std::enable_if<std::is_same<void, decltype (op (std::declval<WInconsistent>()))>::value, void>::type
+      typename std::enable_if<std::is_same<void, decltype (op (std::declval<WInconsistent&>()))>::value, void>::type
    {
       auto voidOp = Internal::MakeVoidOp<WInconsistent>(op);
       WInconsistent::InconsistentlyImpl(voidOp);
@@ -808,7 +803,7 @@ namespace WSTM
 
    template <typename Op_t>
    auto Inconsistently(const Op_t& op, NO_ATOMIC) ->
-      typename std::enable_if<!std::is_same<void, decltype (op (std::declval<WInconsistent>()))>::value, decltype (op (std::declval<WInconsistent>()))>::type
+      typename std::enable_if<!std::is_same<void, decltype (op (std::declval<WInconsistent&>()))>::value, decltype (op (std::declval<WInconsistent&>()))>::type
    {
       auto valOp = Internal::MakeValOp<WInconsistent>(op);
       WInconsistent::InconsistentlyImpl(valOp);

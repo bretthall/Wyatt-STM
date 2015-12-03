@@ -54,7 +54,7 @@ void RunTest (const F_t& f, boost::barrier& bar, const size_t numVars)
                   {
                      for (auto& v: vars)
                      {
-                        std::invoke (f, v, at);
+                        f (v, at);
                      }
                   });
       ++count;
@@ -97,7 +97,7 @@ int main (int argc, const char** argv)
    {
       for (auto i = size_t (0); i < numThreads; ++i)
       {
-         threads.push_back (std::thread ([&]() {RunTest (&WVar<int>::Get, bar, numVars);}));
+         threads.push_back (std::thread ([&]() {RunTest ([](WVar<int>& v, WAtomic& at) {return v.Get (at);}, bar, numVars);}));
       }
    }
    else

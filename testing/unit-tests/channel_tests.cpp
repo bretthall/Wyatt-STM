@@ -836,8 +836,6 @@ BOOST_AUTO_TEST_CASE (test_readAllAtomicInitiallyEmpty)
 
 BOOST_AUTO_TEST_CASE (test_readAllAtomicInitiallyFull)
 {
-   typedef WChannelReader<WTestMsg>::DataOpt Msg;
-            
    WChannel<WTestMsg> chan;
    chan.Write (WTestMsg (4358));
    WChannelReader<WTestMsg> reader (chan);
