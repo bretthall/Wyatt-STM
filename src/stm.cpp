@@ -297,7 +297,6 @@ namespace  WSTM
          assert (m_threadId == std::this_thread::get_id ());
          if (m_count == 0)
          {
-            assert (i == 0);
             return;
          }
 

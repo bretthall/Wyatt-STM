@@ -1569,15 +1569,15 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockIsLocked)
 	{
 		static void RunAtomic(WSTM::WAtomic& at)
 		{
-			at.ReadLock();
+			BOOST_CHECK_NO_THROW(at.ReadLock()); // lock count = 1
 			BOOST_CHECK(at.IsReadLocked());
-			BOOST_CHECK_NO_THROW(at.ReadLock());
+			BOOST_CHECK_NO_THROW(at.ReadLock()); // lock count = 2
 			BOOST_CHECK(at.IsReadLocked());
-			at.ReadUnlock();
+			BOOST_CHECK_NO_THROW(at.ReadUnlock()); // lock count = 1
 			BOOST_CHECK(at.IsReadLocked());
-			BOOST_CHECK_NO_THROW(at.ReadUnlock());
+			BOOST_CHECK_NO_THROW(at.ReadUnlock()); // lock count = 0
 			BOOST_CHECK(!at.IsReadLocked());
-			BOOST_CHECK_NO_THROW(at.ReadUnlock());
+			BOOST_CHECK_NO_THROW(at.ReadUnlock()); // no effect
 			BOOST_CHECK(!at.IsReadLocked());
 
 			{
@@ -1589,15 +1589,15 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_ReadLockIsLocked)
 
 		static void RunInconsistent(WSTM::WInconsistent& inc)
 		{
-			inc.ReadLock();
+			BOOST_CHECK_NO_THROW(inc.ReadLock()); // lock count = 1
 			BOOST_CHECK(inc.IsReadLocked());
-			BOOST_CHECK_NO_THROW(inc.ReadLock());
+			BOOST_CHECK_NO_THROW(inc.ReadLock()); // lock count = 2
 			BOOST_CHECK(inc.IsReadLocked());
-			inc.ReadUnlock();
+			BOOST_CHECK_NO_THROW(inc.ReadUnlock()); // lock count = 1
 			BOOST_CHECK(inc.IsReadLocked());
-			BOOST_CHECK_NO_THROW(inc.ReadUnlock());
+			BOOST_CHECK_NO_THROW(inc.ReadUnlock()); // lock count = 0
 			BOOST_CHECK(!inc.IsReadLocked());
-			BOOST_CHECK_NO_THROW(inc.ReadUnlock());
+			BOOST_CHECK_NO_THROW(inc.ReadUnlock()); //no effect
 			BOOST_CHECK(!inc.IsReadLocked());
 
 			{
