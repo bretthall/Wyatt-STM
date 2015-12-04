@@ -213,11 +213,6 @@ namespace
 		bool operator==(const TestObj& o) const {return val == o.val;}
 	};
 
-	std::ostream& operator<<(std::ostream& out, const TestObj& obj)
-	{
-		out << "TestObj(" << obj.val << ")";
-		return out;
-	}
 	typedef WPersistentList<TestObj> OList;
 }
 

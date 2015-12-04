@@ -21,6 +21,15 @@ using boost::str;
 #include <thread>
 #include <random>
 
+#ifdef NON_APPLE_CLANG 
+//Clang on linux is missing this
+extern "C" int __cxa_thread_atexit(void (*func)(), void *obj, void *dso_symbol)
+{
+   int __cxa_thread_atexit_impl(void (*)(), void *, void *);
+   return __cxa_thread_atexit_impl(func, obj, dso_symbol);
+}
+#endif //NON_APPLE_CLANG 
+
 namespace
 {
    auto s_mt = std::mt19937 (std::random_device ()());
@@ -126,7 +135,8 @@ int main (int argc, const char** argv)
    po::variables_map vm;
    po::store(po::parse_command_line(argc, argv, desc), vm);
    po::notify(vm);
-   if (vm.count("help")) {
+   if (vm.count("help"))
+   {
       std::cout << desc << std::endl;
       return 1;
    }

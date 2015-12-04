@@ -25,6 +25,15 @@ using boost::str;
 #include <algorithm>
 #include <random>
 
+#ifdef NON_APPLE_CLANG 
+//Clang on linux is missing this
+extern "C" int __cxa_thread_atexit(void (*func)(), void *obj, void *dso_symbol)
+{
+   int __cxa_thread_atexit_impl(void (*)(), void *, void *);
+   return __cxa_thread_atexit_impl(func, obj, dso_symbol);
+}
+#endif //NON_APPLE_CLANG 
+
 using PostUpdateFunc = std::function<void ()>;
 
 class WUpdator

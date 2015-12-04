@@ -124,7 +124,6 @@ BOOST_AUTO_TEST_CASE (StmVarTests_DtorCalled)
 
 namespace
 {
-	const unsigned int DEFAULT_COMMIT_SLEEP = 30;
 	void Wait(std::shared_ptr<boost::barrier>& barrier_p)
 	{
 		if(0 != barrier_p.get())
@@ -1384,7 +1383,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_inconsistentConflict)
 		{
 			b.wait();
 			v.Set(v.Get(at) + 1, at);
-			at.After(boost::bind(&boost::barrier::wait, boost::ref(b)));
+			at.After([&](){b.wait ();});
 		}
 
 		static void Start(boost::barrier& b, WSTM::WVar<int>& v)

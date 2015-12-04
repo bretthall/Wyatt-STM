@@ -30,6 +30,8 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
   set(clang_stdlib_flag "-stdlib=libc++")
   set(clang_stdlib_lib "c++abi")
   set(pthread_lib "pthread")
+  add_definitions(-DNON_APPLE_CLANG)
+  add_definitions(-DBOOST_TEST_DYN_LINK)
 endif()
 
 if (NOT CONFIGURED_ONCE)
