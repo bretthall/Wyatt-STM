@@ -12,6 +12,10 @@
 using boost::format;
 using boost::str;
 
+#ifdef NO_THREAD_LOCAL
+#include <boost/thread/tss.hpp>
+#endif
+
 #include <condition_variable>
 #include <unordered_map>
 #include <atomic>
@@ -125,17 +129,81 @@ namespace  WSTM
       //commits locked out.
       boost::upgrade_mutex s_readMutex;
 
-#ifdef APPLE_CLANG
-#define THREAD_LOCAL __thread
+#ifdef NO_THREAD_LOCAL
+
+      //Some compilers don't support thread_local (e.g. apple clang), on those platforms we resort
+      //to using boost::thread_specific_pointer
+      template <typename Type_t>
+      class WThreadLocalValueDefaultCtor
+      {
+      public:
+         Type_t* operator->()
+         {
+            auto value_p = m_value_p.get ();
+            if (!value_p)
+            {
+               value_p = new Type_t;
+               m_value_p.reset (value_p);
+            }
+            return value_p;
+         }
+
+      protected:         
+         boost::thread_specific_ptr<Type_t> m_value_p;
+      };
+
+#define THREAD_LOCAL(type, name) WThreadLocalValueDefaultCtor<type> name;//
+
+      template <typename Type_t>
+      class WThreadLocalValueWithInitValue
+      {
+      public:
+         explicit WThreadLocalValueWithInitValue (const Type_t& value):
+            m_initValue (value)
+         {}
+
+         operator Type_t ()
+         {
+            return *GetValuePtr ();
+         }
+
+         Type_t& operator= (const Type_t value)
+         {
+            auto value_p = GetValuePtr ();
+            *value_p = value;
+            return *value_p;
+         }
+         
+      private:
+         Type_t* GetValuePtr ()
+         {
+            auto value_p = m_value_p.get ();
+            if (!value_p)
+            {
+               value_p = new Type_t (m_initValue);
+               m_value_p.reset (value_p);
+            }
+            return value_p;
+         }
+         
+         Type_t m_initValue;
+         boost::thread_specific_ptr<Type_t> m_value_p;
+      };
+
+#define THREAD_LOCAL_WITH_INIT_VALUE(type, name, value) WThreadLocalValueWithInitValue<type> name (value);//
+
 #else
-#define THREAD_LOCAL thread_local
-#endif //APPLE_CLANG      
+
+#define THREAD_LOCAL(type, name) thread_local type name##__Obj; thread_local type* const name = &name##__Obj;//
+#define THREAD_LOCAL_WITH_INIT_VALUE(type, name, value) thread_local type name = value;//
+
+#endif //#else NO_THREAD_LOCAL      
       
 #ifdef _DEBUG
-      THREAD_LOCAL bool s_readMutexReadLocked = false;
-      THREAD_LOCAL bool s_readMutexUpgradeLocked = false;
-      THREAD_LOCAL bool s_readMutexWriteLocked = false;
-      THREAD_LOCAL bool s_committing = false;
+THREAD_LOCAL_WITH_INIT_VALUE (bool, s_readMutexReadLocked, false);
+THREAD_LOCAL_WITH_INIT_VALUE (bool, s_readMutexUpgradeLocked, false);
+THREAD_LOCAL_WITH_INIT_VALUE (bool, s_readMutexWriteLocked, false);
+THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
 #endif //_DEBUG
       
       //This signal is notified when a commit succeeds. s_readMutex
@@ -798,7 +866,7 @@ namespace  WSTM
          WUpgradeableLock m_lock;
       };
 
-      THREAD_LOCAL WTransactionDataList s_transData;
+      THREAD_LOCAL (WTransactionDataList, s_transData_p);
 
       WTransactionDataList::WTransactionDataList ():
          m_cur_p (nullptr),
@@ -856,8 +924,8 @@ namespace  WSTM
       
       WTransactionDataList::WPushGuard::~WPushGuard ()
       {
-         s_transData.m_root_p = std::move (m_root_p);
-         s_transData.m_cur_p = m_cur_p;
+         s_transData_p->m_root_p = std::move (m_root_p);
+         s_transData_p->m_cur_p = m_cur_p;
       }
 
       WTransactionDataList::WPushGuard WTransactionDataList::Push ()
@@ -1010,7 +1078,7 @@ namespace  WSTM
    }
    
    WAtomic::WAtomic ():
-      m_data_p (s_transData.GetNew ()),
+      m_data_p (s_transData_p->GetNew ()),
       m_committed (false)
    {
 #ifdef _DEBUG
@@ -1104,7 +1172,7 @@ namespace  WSTM
       //transaction that is being restarted. If this happens at best
       //the actions of the detstructor will never be comitted, at
       //worst memory corruption will result.
-      WTransactionDataList::WPushGuard guard = s_transData.Push ();
+      WTransactionDataList::WPushGuard guard = s_transData_p->Push ();
       m_data_p->Clear ();
       m_data_p->Activate ();
    }
@@ -1114,7 +1182,7 @@ namespace  WSTM
       //We need to push our transaction data aside here so that
       //transactions in the "on fail" handlers will run properly
       //(properly here means: no memory corruption)
-      WTransactionDataList::WPushGuard guard = s_transData.Push ();
+      WTransactionDataList::WPushGuard guard = s_transData_p->Push ();
       m_data_p->RunOnFails ();
    }
 
@@ -1355,7 +1423,7 @@ namespace  WSTM
    {
       if (!m_committed)
       {
-         s_transData.Abandon ();
+         s_transData_p->Abandon ();
       }
    }
 
@@ -1364,7 +1432,7 @@ namespace  WSTM
 //#define TRACK_LAST_TRANS_CONFLICTS
 #ifdef TRACK_LAST_TRANS_CONFLICTS
 
-      THREAD_LOCAL unsigned int s_lastTransConflicts = 0;
+      THREAD_LOCAL_WITH_INIT_VALUE (unsigned int, s_lastTransConflicts, 0);
 
       struct WSetLastTransConflicts
       {
@@ -1423,7 +1491,7 @@ namespace  WSTM
             //merge to parent, exceptions and committing will be handled by the
             //root transaction
             op.Run (at);
-            s_transData.MergeToParent ();
+            s_transData_p->MergeToParent ();
             at.m_committed = true;
             return;
          }
@@ -1546,7 +1614,7 @@ namespace  WSTM
 
    bool InAtomic()
    {
-      return (s_transData.Get()->IsActive ());
+      return (s_transData_p->Get()->IsActive ());
    }
 
    WNoAtomic::WNoAtomic ()
