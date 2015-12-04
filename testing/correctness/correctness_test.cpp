@@ -51,7 +51,7 @@ class WUpdatorInt : public WUpdator
 {
 public:
    WUpdatorInt ();
-   virtual void Read (WInconsistent& i);
+   virtual void Read (WInconsistent& i) override;
    virtual PostUpdateFunc Update (WAtomic& at) override;
    virtual void CheckValue () const override;
 

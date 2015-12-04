@@ -15,6 +15,7 @@ using boost::format;
 #include <boost/test/unit_test.hpp>
 #include <boost/thread/barrier.hpp>
 using boost::barrier;
+#include <boost/function.hpp>
 
 #include <cstdlib>
 #include <thread>
