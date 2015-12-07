@@ -428,6 +428,7 @@ int main (int argc, const char** argv)
    po::options_description desc;
    desc.add_options ()
       ("help", "Display help message")
+      ("version", "The program and library version")
       ("minThreads,t", po::value<unsigned int>(&context.m_minThreads)->default_value (1), "The minimum number of threads to run")
       ("maxThreads,T", po::value<unsigned int>(&context.m_maxThreads)->default_value (2*numHWThreads), "The maximum number of threads to run")
       ("minVars,v", po::value<unsigned int>(&context.m_minVars)->default_value (5), "The minimum number of vars to use")
@@ -442,6 +443,11 @@ int main (int argc, const char** argv)
       std::cout << desc << std::endl;
       return 1;
    }
+   if (vm.count ("version"))
+   {
+      const auto version = GetVersion ();
+      std::cout << "Version = " << version.m_major << "." << version.m_minor << "." << version.m_patch << std::endl;
+   }
 
    std::cout << "Starting run:" << std::endl;
    std::cout << "\tminThreads = " << context.m_minThreads << std::endl;
@@ -449,7 +455,6 @@ int main (int argc, const char** argv)
    std::cout << "\tminVars = " << context.m_minVars << std::endl;
    std::cout << "\tmaxVars = " << context.m_maxVars << std::endl;
    std::cout << "\tduration = " << context.m_durationSecs << std::endl;
-
 
    context.UpdateVars ([&](const auto&)
                        {

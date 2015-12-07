@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.3.2)
 project(wyatt-stm)
 
+set(wstm_version_major 1)
+set(wstm_version_minor 0)
+set(wstm_version_patch 0)
+set(wstm_version_flags "-DWSTM_VERSION_MAJOR=${wstm_version_major} -DWSTM_VERSION_MINOR=${wstm_version_minor} -DWSTM_VERSION_PATCH=${wstm_version_patch}")
+
 if (APPLE OR WIN32)
   set(Boost_USE_STATIC_LIBS ON)
 endif()
@@ -35,9 +40,9 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
 endif()
 
 if (NOT CONFIGURED_ONCE)
-    set(CMAKE_CXX_FLAGS "${warnings} ${clang_stdlib_flag}"
+    set(CMAKE_CXX_FLAGS "${warnings} ${wstm_version_flags} ${clang_stdlib_flag}"
         CACHE STRING "Flags used by the compiler during all build types." FORCE)
-    set(CMAKE_C_FLAGS   "${warnings}"
+    set(CMAKE_C_FLAGS   "${warnings} ${wstm_version_flags}"
         CACHE STRING "Flags used by the compiler during all build types." FORCE)
 endif()
 

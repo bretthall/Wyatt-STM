@@ -28,6 +28,18 @@
 
 namespace WSTM
 {
+   struct WLibraryVersion
+   {
+      unsigned int m_major;
+      unsigned int m_minor;
+      unsigned int m_patch;
+   };
+
+   /**
+    * Gets the library version.
+    */
+   WLibraryVersion GetVersion ();
+
    /**
     * Starts a profiling run. Note that STM_PROFILING must be defined
     * in stm.cpp for this to do anything.

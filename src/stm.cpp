@@ -28,6 +28,11 @@ using boost::str;
 
 namespace  WSTM
 {
+   WLibraryVersion GetVersion ()
+   {
+      return {WSTM_VERSION_MAJOR, WSTM_VERSION_MINOR, WSTM_VERSION_PATCH};
+   }
+   
    namespace Internal
    {
       WLocalValueBase::~WLocalValueBase ()
@@ -48,7 +53,6 @@ namespace  WSTM
       std::atomic<unsigned int> s_numConflicts;
       std::atomic<unsigned int> s_numReadCommits;
       std::atomic<unsigned int> s_numWriteCommits;
-
 #endif //STM_PROFILING
 
       void IncrementNumConflicts ()

@@ -83,6 +83,7 @@ int main (int argc, const char** argv)
    po::options_description desc;
    desc.add_options ()
       ("help", "Display help message")
+      ("version", "The program and library version")
       ("set,S", "Change variable values instead of just reading them")
       ("threads,T", po::value<unsigned int>(&numThreads)->default_value (1), "The number of threads to run")
       ("vars,V", po::value<unsigned int>(&numVars)->default_value (1), "The number of vars to use in each thread")
@@ -93,6 +94,11 @@ int main (int argc, const char** argv)
    if (vm.count("help")) {
       std::cout << desc << std::endl;
       return 1;
+   }
+   if (vm.count ("version"))
+   {
+      const auto version = GetVersion ();
+      std::cout << "Version = " << version.m_major << "." << version.m_minor << "." << version.m_patch << std::endl;
    }
    const auto doSet = vm.count ("set");
    

@@ -42,6 +42,14 @@ namespace
 
 BOOST_AUTO_TEST_SUITE(ExceptionTests)
 
+BOOST_AUTO_TEST_CASE (version)
+{
+   auto version = WSTM::GetVersion ();
+   BOOST_CHECK_EQUAL (version.m_major, unsigned int(WSTM_VERSION_MAJOR));
+   BOOST_CHECK_EQUAL (version.m_minor, unsigned int(WSTM_VERSION_MINOR));
+   BOOST_CHECK_EQUAL (version.m_patch, unsigned int(WSTM_VERSION_PATCH));
+}
+
 BOOST_AUTO_TEST_CASE (ExceptionTests_test_cantContinueException)
 {
 	BOOST_CHECK((boost::is_base_of<

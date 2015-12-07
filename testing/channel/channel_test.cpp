@@ -126,6 +126,7 @@ int main (int argc, const char** argv)
    po::options_description desc;
    desc.add_options ()
       ("help", "Display help message")
+      ("version", "The program and library version")
       ("readers,R", po::value<unsigned int>(&numReaders)->default_value (numHWThreads/2), "The number of reader threads to run")
       ("writers,W", po::value<unsigned int>(&numWriters)->default_value (numHWThreads/2), "The number of writer threads to run")
       ("exitChance,X",
@@ -139,6 +140,11 @@ int main (int argc, const char** argv)
    {
       std::cout << desc << std::endl;
       return 1;
+   }
+   if (vm.count ("version"))
+   {
+      const auto version = GetVersion ();
+      std::cout << "Version = " << version.m_major << "." << version.m_minor << "." << version.m_patch << std::endl;
    }
 
    std::cout
