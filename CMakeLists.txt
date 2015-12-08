@@ -9,7 +9,7 @@ set(wstm_version_flags "-DWSTM_VERSION_MAJOR=${wstm_version_major} -DWSTM_VERSIO
 if (APPLE OR WIN32)
   set(Boost_USE_STATIC_LIBS ON)
 endif()
-find_package(Boost 1.57 REQUIRED COMPONENTS thread program_options system unit_test_framework timer chrono)
+find_package(Boost 1.57 REQUIRED COMPONENTS thread program_options system unit_test_framework timer chrono date_time)
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
     set(warnings "-Wall -Wextra -Werror")

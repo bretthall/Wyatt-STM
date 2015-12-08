@@ -559,7 +559,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
       };
 
 #ifdef _DEBUG
-      void* const WTransactionData::MARKER_VALUE = (void*)0xdeadbeef;
+      void* const WTransactionData::MARKER_VALUE = (void*)0xdeadbeefdeadbeef;
 #endif //_DEBUG
 
       WTransactionData::WTransactionData (WUpgradeableLock& lock):

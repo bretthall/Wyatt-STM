@@ -5,3 +5,5 @@ gcc_debug
 gcc_release
 clang-*
 gcc-*
+build32
+build64

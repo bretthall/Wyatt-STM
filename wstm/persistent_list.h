@@ -694,7 +694,7 @@ namespace WSTM
       WZipper zip = pos.m_zip;
       std::stack<value_type> vals;
       std::for_each(it, end_, [&](const value_type& val) {vals.push (val);});
-      const int count = vals.size();
+      const auto count = vals.size();
       WNodePtr node_p = zip.node_p;
       while(!vals.empty())
       {

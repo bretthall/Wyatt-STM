@@ -231,7 +231,7 @@ WContext::VarVecConstPtr WContext::GetVars ()
 bool UpdateVars (WContext& context, std::mt19937& mt)
 {
    const auto vars_p = context.GetVars ();
-   auto dist = std::uniform_int_distribution<unsigned int>(0, vars_p->size () - 1);
+   auto dist = std::uniform_int_distribution<size_t>(0, vars_p->size () - 1);
    const auto numChanges = 2*dist (mt);
    auto changes = WContext::VarVec (numChanges);
    std::generate (std::begin (changes), std::end (changes), [&](){return (*vars_p)[dist (mt)];});
@@ -255,7 +255,7 @@ bool UpdateVars (WContext& context, std::mt19937& mt)
 bool ReadInconsitent (WContext& context, std::mt19937& mt)
 {
    const auto vars_p = context.GetVars ();
-   auto dist = std::uniform_int_distribution<unsigned int>(0, vars_p->size () - 1);
+   auto dist = std::uniform_int_distribution<size_t>(0, vars_p->size () - 1);
    const auto numReads = 2*dist (mt);
    auto reads = WContext::VarVec (numReads);
    std::generate (std::begin (reads), std::end (reads), [&](){return (*vars_p)[dist (mt)];});
@@ -273,7 +273,7 @@ bool ReadInconsitent (WContext& context, std::mt19937& mt)
 bool RetryOnVars (WContext& context, std::mt19937& mt)
 {
    const auto vars_p = context.GetVars ();
-   auto dist = std::uniform_int_distribution<unsigned int>(0, vars_p->size () - 1);
+   auto dist = std::uniform_int_distribution<size_t>(0, vars_p->size () - 1);
    const auto numReads = 2*dist (mt);
    auto vars = WContext::VarVec (numReads);
    std::generate (std::begin (vars), std::end (vars), [&](){return (*vars_p)[dist (mt)];});
@@ -312,7 +312,7 @@ bool MaybeRemoveVar (WContext& context, std::mt19937& mt)
                              if (vars_p->size () > context.m_minVars)
                              {
                                 auto newVars_p = std::make_shared<WContext::VarVec>(*vars_p);
-                                auto dist = std::uniform_int_distribution<unsigned int>(0, vars_p->size () - 1);
+                                auto dist = std::uniform_int_distribution<size_t>(0, vars_p->size () - 1);
                                 newVars_p->erase (std::begin (*newVars_p) + dist (mt));
                                 return newVars_p;
                              }
@@ -394,7 +394,7 @@ const std::vector<Action> actions = {UpdateVars, ReadInconsitent, RetryOnVars, M
 void RunTest (WContext& context)
 {
    auto mt = std::mt19937 (std::random_device ()());
-   auto actionDist = std::uniform_int_distribution<unsigned int>(0, actions.size () - 1);
+   auto actionDist = std::uniform_int_distribution<size_t>(0, actions.size () - 1);
    
    for (;;)
    {
@@ -462,7 +462,7 @@ int main (int argc, const char** argv)
                           std::generate (std::begin (*newVars_p), std::end (*newVars_p), [](){return std::make_shared<WUpdatorInt>();});
 
                           auto mt = std::mt19937 (std::random_device ()());
-                          auto dist = std::uniform_int_distribution<unsigned int>(0, newVars_p->size () - 1);
+                          auto dist = std::uniform_int_distribution<size_t>(0, newVars_p->size () - 1);
                           (*newVars_p)[dist (mt)] = std::make_shared<WUpdatorAfter>();
                           (*newVars_p)[dist (mt)] = std::make_shared<WUpdatorAfter>();
                           (*newVars_p)[dist (mt)] = std::make_shared<WUpdatorAfter>();                          
