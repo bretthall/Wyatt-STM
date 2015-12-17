@@ -4,6 +4,8 @@ Wyatt-STM is a library based software transactional memory (STM) system. It was 
 
 This document concentrates on how to use the system. For more information on how well the system has worked for us at Wyatt Technology please see either this [paper](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2015/n4438.pdf) or this [talk](https://youtu.be/k20nWb9fHj0) from CppCon 2015. 
 
+For a detailed reference see the [Doxygen](http://www.stack.nl/~dimitri/doxygen/index.html) generated reference files in `ref`. These files are generated from the headers in `wstm` using the `Doxyfile` in the `doc` directory.
+
 ## Core System
 
 The core of the STM system is defined in the `WSTM` namespace in file `wstm/stm.h`. 

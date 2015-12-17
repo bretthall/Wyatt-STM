@@ -31,9 +31,21 @@
 #include <type_traits>
 
 
+/**
+ * @file find_arg.h
+ * A system for finding specific types in a parameter pack.
+ */
+
 namespace WSTM
 {
-   //!{
+   /**
+    * @defgroup FindArg Argument Finder
+    *
+    * Finds arguments of a given type in a parameter pack.
+    */
+   ///@{
+
+   //@{
    /**
     * Finds the given type in the given pack of arguments. This is useful for having variadic
     * argument lists for functions. To have variadic arguments in a function just make the function
@@ -42,6 +54,9 @@ namespace WSTM
     * which is easy to arrange by using the FIND_ARG__MAKE_ARG_TYPE macro). findArg will return the
     * argument of the given type or a default constructed object of the given type if there was no
     * object of the given type in the argument pack.
+    *
+    * @param Wanted_t The type to find. 
+    * @param as The arguments to search through.
     */
    template <typename Wanted_t, typename A_t, typename ... As_t>
    std::enable_if_t<std::is_same<Wanted_t, A_t>::value, Wanted_t> findArg (const A_t& a, const As_t&...)
@@ -72,7 +87,7 @@ namespace WSTM
    {
       return Wanted_t ();
    }
-   //!}
+   //@}
    
    /**
     * Creates a type for use with findArg. The created type will have a "m_value" member that
@@ -89,5 +104,6 @@ namespace WSTM
       name () : m_value (def) {}                             \
       name (const type value) : m_value (value) {}           \
    };//
-   
+
+   ///@}
 }

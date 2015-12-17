@@ -37,25 +37,42 @@
 
 #include <boost/optional.hpp>
 
+/**
+ * @file deferred_result.h
+ * A deferred result system built on top of the STM system.
+ */
+
 namespace WSTM
 {
+   //TODO: these should be derived from WException
+
    /**
-    * Exception thrown by some methods of WDeferredResult if the
-    * result is not available yet.
+    * @defgroup DeferredResult Deferred Results
+    *
+    * A deferred result system built on top of the STM system.
+    *
+    * This system provides transactional versions of std::future and std::promise. The analogs are
+    * WDeferredResult and WDeferredValue respectively. 
+    */
+   ///@{
+
+   /**
+    * Exception thrown by some methods of WDeferredResult if the result is not available yet.
     */
    class WSTM_CLASSAPI WNotDoneError : public std::runtime_error
    {
    public:
+      //!Creates an exception object.
       WNotDoneError ();
    };
 
    /**
-    * Exception thrown by some methods of WDeferredValue if the value
-    * is already in the done state.
+    * Exception thrown by some methods of WDeferredValue if the value is already in the done state.
     */
    class WSTM_CLASSAPI WAlreadyDoneError : public std::runtime_error
    {
    public:
+      //!Creates an exception object.
       WAlreadyDoneError ();
    };
    
@@ -147,100 +164,110 @@ namespace WSTM
          std::shared_ptr<WDeferredValueCoreBase> m_core_p;
       };
 
-      template <typename Result_t>
-      class WDeferredValueBase
-      {
-      public:
-         WDeferredValueBase () :
-            m_core_p (std::make_shared<Core>())
-         {
-            m_watch_p = std::make_shared<WDeferredValueWatch> (m_core_p);
-         }
-
-         WDeferredValueBase (const WDeferredValueBase& value):
-            m_core_p (value.m_core_p),
-            m_watch_p (value.m_watch_p)
-         {}
-         
-         //!{
-         /**
-          * Sets the value to the "failed" state with the given reason
-          * for failure.
-          *
-          * @param failure The reason for the failure, this will be
-          * thrown by any associated WDeferredResult objects.
-          *
-          * @param at The current STM transaction.
-          */
-         template <typename Fail_t>
-         void Fail (const Fail_t& failure)
-         {
-            Atomically ([&](WAtomic& at){Fail (failure, at);});
-         }
-
-         template <typename Fail_t>
-         void Fail (const Fail_t& failure, WAtomic& at)
-         {
-            m_core_p->Fail (failure, at);
-         }
-         //!}
-
-         //!{
-         /**
-          * Returns true if the value has already been set to done.
-          *
-          * @param The current STM transaction.
-          *
-          * @return true if already set to done, false otherwise.
-          */
-         bool IsDone () const
-         {
-            return Atomically ([&](WAtomic& at){return m_core_p->IsDone (at);});
-         }
-         
-         bool IsDone (WAtomic& at) const
-         {
-            return m_core_p->IsDone (at);
-         }
-         //!}
-
-         //!{
-         /**
-          * Returns true if this value has any WDeferredResult objects attached to it.
-          */
-         bool HasReaders () const
-         {
-            return Atomically ([&](WAtomic& at){return HasReaders (at);});
-         }
-         
-         bool HasReaders (WAtomic& at) const
-         {
-            return m_core_p->HasReaders (at);
-         }
-         //!}
-         
-      protected:
-         using Core = Internal::WDeferredValueCore<Result_t>;
-         using CorePtr = std::shared_ptr<Core>;
-         CorePtr m_core_p;
-
-         std::shared_ptr<WDeferredValueWatch> m_watch_p;
-      };
-
    }
-
+   
    /**
-    * The "write" end of a deferred result pair. This class is used by
-    * the operation that is reporting its result.
-    *
-    * Note that copying WDeferredValue and creating WDeferredResult
-    * object form a WDeferredValue object are not threadsafe. If you
-    * need to do this from multiple threads then the WDeferredValue
-    * must either be protected by mutexs or stored in an STM::WVar
-    * (the latter is better).
+    * Base class for WDeferredValue.
     */
    template <typename Result_t>
-   class WDeferredValue : public Internal::WDeferredValueBase<Result_t>
+   class WDeferredValueBase
+   {
+   public:
+      /**
+       * Constructor.
+       */
+      WDeferredValueBase () :
+         m_core_p (std::make_shared<Core>())
+      {
+         m_watch_p = std::make_shared<WDeferredValueWatch> (m_core_p);
+      }
+
+      /**
+       * Copy Constructor.
+       */
+      WDeferredValueBase (const WDeferredValueBase& value):
+         m_core_p (value.m_core_p),
+         m_watch_p (value.m_watch_p)
+      {}
+         
+      //@{
+      /**
+       * Sets the value to the "failed" state with the given reason for failure.
+       *
+       * @param failure The reason for the failure, this will be thrown by any associated
+       * WDeferredResult objects.
+       *
+       * @param at The current STM transaction.
+       */
+      template <typename Fail_t>
+      void Fail (const Fail_t& failure)
+      {
+         Atomically ([&](WAtomic& at){Fail (failure, at);});
+      }
+
+      template <typename Fail_t>
+      void Fail (const Fail_t& failure, WAtomic& at)
+      {
+         m_core_p->Fail (failure, at);
+      }
+      //@}
+
+      //@{
+      /**
+       * Checks if the value has already been set to done.
+       *
+       * @param The current STM transaction.
+       *
+       * @return true if already set to done, false otherwise.
+       */
+      bool IsDone () const
+      {
+         return Atomically ([&](WAtomic& at){return m_core_p->IsDone (at);});
+      }
+         
+      bool IsDone (WAtomic& at) const
+      {
+         return m_core_p->IsDone (at);
+      }
+      //@}
+
+      //@{
+      /**
+       * Checks if this value has any WDeferredResult objects attached to it.
+       *
+       * @param The current STM transaction.
+       *
+       * @return true if there are attached WDeferredResult objects, false otherwise.
+       */
+      bool HasReaders () const
+      {
+         return Atomically ([&](WAtomic& at){return HasReaders (at);});
+      }
+         
+      bool HasReaders (WAtomic& at) const
+      {
+         return m_core_p->HasReaders (at);
+      }
+      //@}
+         
+   protected:
+      using Core = Internal::WDeferredValueCore<Result_t>;
+      using CorePtr = std::shared_ptr<Core>;
+      CorePtr m_core_p;
+
+      std::shared_ptr<WDeferredValueWatch> m_watch_p;
+   };
+
+   /**
+    * The "write" end of a deferred result pair. This class is used by the operation that is
+    * reporting its result.
+    *
+    * Note that copying WDeferredValue and creating a WDeferredResult object frorm a WDeferredValue
+    * object are not threadsafe. If you need to do this from multiple threads then the
+    * WDeferredValue must either be protected by mutexs or stored in an WVar (the latter is better).
+    */
+   template <typename Result_t>
+   class WDeferredValue : public WDeferredValueBase<Result_t>
    {
    public:
       template <typename> friend class WDeferredResult;
@@ -252,11 +279,12 @@ namespace WSTM
       {}
       
       /**
-       * Copies the given WDeferredValue object. When a deferred
-       * valuew is copied the objects are associated such that setting
-       * one done sets the other done.
+       * Copies the given WDeferredValue object. When a deferred value is copied the objects are
+       * associated such that setting one done sets the other done.
        *
        * @param value The value to copy.
+       *
+       * @return This object.
        */
       WDeferredValue& operator= (const WDeferredValue& value)
       {
@@ -265,12 +293,11 @@ namespace WSTM
          return *this;
       }
 
-      //!{
+      //@{
       /**
        * Sets the value to the "done" state with the given result.
        *
-       * @param res The result that will be reported by associated
-       * WDeferredResult objects.
+       * @param res The result that will be reported by associated WDeferredResult objects.
        *
        * @param at The current STM transaction.
        */
@@ -284,24 +311,21 @@ namespace WSTM
          //gcc requires "this"
          this->m_core_p->Done (res, at);
       }
-      //!}
+      //@}
    };
 
    /**
-    * The "write" end of a deferred result pair, see WDeferredResult
-    * for more details. This class is used by the operation that is
-    * reporting its result. This specialization is for operations that
-    * do not reports results, just that they are done or that an error
-    * has occured.
+    * The "write" end of a deferred result pair, see WDeferredResult for more details. This class is
+    * used by the operation that is reporting its result. This specialization is for operations that
+    * do not reports results, just that they are done or that an error has occured.
     *
-    * Note that copying WDeferredValue and creating WDeferredResult
-    * object form a WDeferredValue object are not threadsafe. If you
-    * need to do this from multiple threads then the WDeferredValue
-    * must either be protected by mutexs or stored in an STM::WVar
-    * (the latter is better).
+    * Note that copying WDeferredValue and creating a WDeferredResult object from a WDeferredValue
+    * object are not threadsafe. If you need to do this from multiple threads then the
+    * WDeferredValue must either be protected by mutexs or stored in an WVar (the latter is
+    * better).
     */
    template <>
-   class WDeferredValue<void> : public Internal::WDeferredValueBase<void>
+   class WDeferredValue<void> : public WDeferredValueBase<void>
    {
    public:
       template <typename> friend class WDeferredResult;
@@ -313,13 +337,14 @@ namespace WSTM
       {}
       
       /**
-       * Copies the given WDeferredValue object. When a deferred
-       * valuew is copied the objects are associated such that setting
-       * one done sets the other done. Note that resetting a
-       * WDeferredValue object resets only that object, not any
-       * objects that are associated via copying.
+       * Copies the given WDeferredValue object. When a deferred valuew is copied the objects are
+       * associated such that setting one done sets the other done. Note that resetting a
+       * WDeferredValue object resets only that object, not any objects that are associated via
+       * copying.
        *
        * @param value The value to copy.
+       *
+       * @return This object.
        */
       WDeferredValue& operator= (const WDeferredValue& value)
       {
@@ -327,12 +352,9 @@ namespace WSTM
          return *this;
       }
       
-      //!{
+      //@{
       /**
        * Sets the value to the "done" state with the given result.
-       *
-       * @param res The result that will be reported by associated
-       * WDeferredResult objects.
        *
        * @param at The current STM transaction.
        */
@@ -344,44 +366,44 @@ namespace WSTM
       {
          m_core_p->SetDone (at);
       }
-      //!}
+      //@}
    };
 
+   
+   //TODO: these should be derived from WException
+   
    /**
-    * Exception thrown by WDeferredResult methods if the
-    * WDeferredResult object is not associated with a WDeferredValue
-    * object.
+    * Exception thrown by WDeferredResult methods if the WDeferredResult object is not associated
+    * with a WDeferredValue object.
     */
    class WSTM_CLASSAPI WInvalidDeferredResultError : public std::runtime_error
    {
    public:
+      //!Creates an exception object.
       WInvalidDeferredResultError ();
    };
 
    /**
-    * Exception thrown through WDeferredResult if the associated
-    * WDeferredValue goes away without setting the result.
+    * Exception thrown through WDeferredResult if the associated WDeferredValue goes away without
+    * setting the result.
     */
    class WSTM_CLASSAPI WBrokenPromiseError : public std::runtime_error
    {
    public:
+      //!Creates an exception object.
       WBrokenPromiseError ();
    };
 
    /**
-    * The read end of a deferred result pair (the other end is
-    * WDeferredValue). This is used by operations that need to
-    * return immediately but will not have a result available until
-    * later, usually because the result is being calculated in another
-    * thread. The operation creates a WDeferredValue object that it
-    * hodls on to and returns a WDeferredResult object that is
+    * The read end of a deferred result pair (the other end is WDeferredValue). This is used by
+    * operations that need to return immediately but will not have a result available until later,
+    * usually because the result is being calculated in another thread. The operation creates a
+    * WDeferredValue object that it holds on to and returns a WDeferredResult object that is
     * associated with the WDeferredValue.
     *
-    * Note that copying WDeferredResult and creating WDeferredResult
-    * objects from a WDeferredValue object are not threadsafe. If you
-    * need to do this from multiple threads then the WDeferredValue
-    * must either be protected by mutexes or stored in an STM::WVar
-    * (the latter is better).
+    * Note that copying WDeferredResult and creating WDeferredResult objects from a WDeferredValue
+    * object are not threadsafe. If you need to do this from multiple threads then the
+    * WDeferredValue must either be protected by mutexes or stored in a WVar (the latter is better).
     */
    template <typename Result_t>
    class WDeferredResult
@@ -394,6 +416,9 @@ namespace WSTM
       WDeferredResult ()
       {}
 
+      /**
+       * Destructor.
+       */
       ~WDeferredResult ()
       {
          Atomically ([&](WAtomic& at)
@@ -406,14 +431,15 @@ namespace WSTM
                      });
       }
 
-      //!{
+      //@{
       /**
-       * Associates this WDeferredResult object with the same
-       * WDeferredValue object as the given WDeferredResult object.
+       * Associates this WDeferredResult object with the same WDeferredValue object as the given
+       * WDeferredResult object.
        *
-       * @param result The result that is associated with the
-       * WDeferredValue object that this object should be associated
-       * with.
+       * @param result The result that is associated with the WDeferredValue object that this object
+       * should be associated with.
+       * 
+       * @param at The current transtaction.
        */
       WDeferredResult (const WDeferredResult& result)
       {
@@ -437,9 +463,9 @@ namespace WSTM
          UpdateReaderCounts (core_p, at);
          m_core_v.Set (core_p, at);
       }
-      //!}
+      //@}
       
-      //!{
+      //@{
       /**
        * Associates this WDeferredResult object with the given WDeferredValue object. If the
        * WDeferredResult object was already associated with another WDeferredValue object that
@@ -466,12 +492,15 @@ namespace WSTM
          UpdateReaderCounts (value.m_core_p, at);
          m_core_v.Set (value.m_core_p, at);
       }
-      //!}
+      //@}
       
-      //!{
+      //@{
       /**
-       * Returns true if this object is associated with a
-       * WDeferredValue, false otherwise.
+       * Checks if this object is associated with a WDeferredValue.
+       *
+       * @param at The current transaction.
+       *
+       * @return true if this object is associated with a WDeferredValue, false otherwise.
        */
       operator bool() const
       {
@@ -482,12 +511,13 @@ namespace WSTM
       {
          return m_core_v.Get (at);
       }
-      //!}
+      //@}
 
-      //!{
+      //@{
       /**
-       * Releases any existing association with a WDeferredValue
-       * object.
+       * Releases any existing association with a WDeferredValue object.
+       *
+       * @param at The current transaction.
        */
       void Release ()
       {
@@ -499,18 +529,15 @@ namespace WSTM
          UpdateReaderCounts (nullptr, at);
          m_core_v.Set (nullptr, at);
       }
-      //!}
+      //@}
       
-      //!{
+      //@{
       /**
-       * Checks the "done" state of the associated WDeferredValue
-       * object.
+       * Checks the "done" state of the associated WDeferredValue object.
        *
-       * @return true if the operation is done (either by success or
-       * failure).
+       * @return true if the operation is done (either by success or failure).
        *
-       * @throw WInvalidDeferredResultError if the
-       * WDeferredResult object is not associated with a
+       * @throw WInvalidDeferredResultError if the WDeferredResult object is not associated with a
        * WDeferredValue.
        */
       bool IsDone () const
@@ -522,17 +549,15 @@ namespace WSTM
       {
          return CheckCore (at)->IsDone (at);
       }
-      //!}
+      //@}
       
-      //!{
+      //@{
       /**
-       * Checks the "failed" state of the associated WDeferredValue
-       * object.
+       * Checks the "failed" state of the associated WDeferredValue object.
        *
        * @return true if the operation failed, false otherwise.
        *
-       * @throw WInvalidDeferredResultError if the
-       * WDeferredResult object is not associated with a
+       * @throw WInvalidDeferredResultError if the WDeferredResult object is not associated with a
        * WDeferredValue.
        */
       bool Failed () const
@@ -544,19 +569,17 @@ namespace WSTM
       {
          return CheckCore (at)->Failed (at);
       }
-      //!}
+      //@}
       
       /**
-       * Waits for the WDeferredValue object to enter the done state
-       * (either via success or failure).
+       * Waits for the WDeferredValue object to enter the done state (either via success or
+       * failure).
        *
-       * @param timeout The number of milliseconds to wait.
+       * @param timeout The amount of time to wait.
        *
-       * @return true if the result is now available and false if the
-       * timeout expired.
+       * @return true if the result is now available and false if the timeout expired.
        * 
-       * @throw WInvalidDeferredResultError if the
-       * WDeferredResult object is not associated with a
+       * @throw WInvalidDeferredResultError if the WDeferredResult object is not associated with a
        * WDeferredValue.
        */
       bool Wait (const WTimeArg& timeout = WTimeArg::Unlimited (), NO_ATOMIC) const
@@ -566,15 +589,13 @@ namespace WSTM
       }
 
       /**
-       * If the result is not available STM::Retry is called,
-       * otherwise nothing is done.
+       * If the result is not available STM::Retry is called, otherwise nothing is done.
        *
        * @param at The current STM transaction.
        *
        * @param timeout The timeout to pass to Retry.
        *
-       * @throw WInvalidDeferredResultError if the
-       * WDeferredResult object is not associated with a
+       * @throw WInvalidDeferredResultError if the WDeferredResult object is not associated with a
        * WDeferredValue.
        */
       void RetryIfNotDone (WAtomic& at, const WTimeArg& timeout = WTimeArg::Unlimited ()) const
@@ -582,15 +603,14 @@ namespace WSTM
          CheckCore (at)->RetryIfNotDone (at, timeout);
       }
 
-      //!{
+      //@{
       /**
-       * Gets the result of the operation. If operation failed the
-       * reason for the failure will be thrown by this method.
+       * Gets the result of the operation. If operation failed the reason for the failure will be
+       * thrown by this method.
        *
        * @param at The current STM transaction.
        *
-       * @throw WInvalidDeferredResultError if the
-       * WDeferredResult object is not associated with a
+       * @throw WInvalidDeferredResultError if the WDeferredResult object is not associated with a
        * WDeferredValue.
        *
        * @throw WNotDoneError if the operation is not done yet.
@@ -604,17 +624,16 @@ namespace WSTM
       {
          return CheckCore (at)->GetResult (at);
       }
-      //!}
+      //@}
 
-      //!{
+      //@{
       /**
-       * If the oepration failed then this method throws the reason
-       * for the failure, otherwise it does nothing.
+       * If the oepration failed then this method throws the reason for the failure, otherwise it
+       * does nothing.
        * 
        * @param at The current STM transaction.
        *
-       * @throw WInvalidDeferredResultError if the
-       * WDeferredResult object is not associated with a
+       * @throw WInvalidDeferredResultError if the WDeferredResult object is not associated with a
        * WDeferredValue.
        *
        * @throw WNotDoneError if the operation is not done yet.
@@ -628,12 +647,11 @@ namespace WSTM
       {
          CheckCore (at)->ThrowError (at);
       }
-      //!}
+      //@}
 
       /**
-       * Connection management objects returned by OnDone. This class
-       * can be used to disconnect a callback passed to
-       * WDeferredResult::OnDone.
+       * Connection management objects returned by OnDone. This class can be used to disconnect a
+       * callback passed to WDeferredResult::OnDone.
        */
       class WConnection
       {
@@ -645,15 +663,18 @@ namespace WSTM
             m_index (-1)
          {}
          
-         WConnection (const int index,
-                      const std::shared_ptr<Internal::WDeferredValueCore<Result_t>>& core_p):
+         /**
+          * Creates a connection object (Used internally, please ignore).
+          */
+         WConnection (const int index, const std::shared_ptr<Internal::WDeferredValueCore<Result_t>>& core_p):
             m_index (index), m_core_p (core_p)
          {}
 
-         //!{
+         //@{
          /**
-          * Disconnects a callback. It is safe to call this on an
-          * uninitialized object.
+          * Disconnects a callback. It is safe to call this on an uninitialized object.
+          *
+          * @param The current STM transaction.
           */
          void Disconnect ()
          {
@@ -670,11 +691,12 @@ namespace WSTM
             m_index = -1;
             m_core_p.reset ();
          }
-         //!}
+         //@}
          
          /**
-          * Returns true if the connection is initialized, false
-          * otherwise.
+          * Checks if the connection is initialized.
+          *
+          * @return true if initialized, false otherwise.
           */
          operator bool() const
          {
@@ -691,22 +713,19 @@ namespace WSTM
        */
       using DoneCallback = Internal::WDeferredValueCoreBase::DoneCallback;
 
-      //!{
+      //@{
       /**
-       * Connects a callback that is called when the operation
-       * finishes. If the operation has already finished the callback
-       * will be called immediately. The callback will only ever be
+       * Connects a callback that is called when the operation finishes. If the operation has
+       * already finished the callback will be called immediately. The callback will only ever be
        * called once.
        *
        * @param callback The callback to register.
        *
-       * @param at The current STM transaction.
+       * @param at The current transaction.
        *
-       * @return A WConnection object that can be used to disconnect
-       * the callback.
+       * @return A WConnection object that can be used to disconnect the callback.
        *
-       * @throw WInvalidDeferredResultError if the
-       * WDeferredResult object is not associated with a
+       * @throw WInvalidDeferredResultError if the WDeferredResult object is not associated with a
        * WDeferredValue.
        */
       WConnection OnDone (DoneCallback callback)
@@ -728,7 +747,7 @@ namespace WSTM
             return WConnection (index, core_p);             
          }
       }
-      //!}
+      //@}
       
    private:
       using Core = Internal::WDeferredValueCore<Result_t>;
@@ -759,7 +778,6 @@ namespace WSTM
       }      
    };
 
-   //!{
    /**
     * Creates a WDeferredResult in the "done" state.
     *
@@ -773,8 +791,10 @@ namespace WSTM
       return value;
    }
    
+   /**
+    * Creates a WDeferredResult in the "done" state.
+    */
    WDeferredResult<void> WSTM_LIBAPI DoneDeferred ();
-   //!}
    
    /**
     * Creates a WDeferredResult object in the "failed" state.
@@ -788,5 +808,7 @@ namespace WSTM
       value.Fail (failure);
       return value;      
    }
-   
+
+   ///@}
+
 }

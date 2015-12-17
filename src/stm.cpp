@@ -268,7 +268,22 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
       m_max(m),
       m_resolution (res)
    {}
+
+   WMaxRetries::WMaxRetries ():
+      m_value (UNLIMITED)
+   {}
    
+   WMaxRetries::WMaxRetries (const unsigned int max):
+      m_value (max)
+   {}
+
+   WMaxRetryWait::WMaxRetryWait ()
+   {}
+   
+   WMaxRetryWait::WMaxRetryWait (const WTimeArg wait):
+      m_value (wait)
+   {}
+
    namespace
    {
       
@@ -1481,7 +1496,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
 
    }
 
-   void WAtomic::AtomicallyImpl(WAtomicOp& op,
+   void WAtomic::AtomicallyImpl(Internal::WAtomicOp& op,
                                 const WMaxConflicts& maxConflicts,
                                 const WMaxRetries& maxRetries,
                                 const WMaxRetryWait& maxRetryWait)
@@ -1601,7 +1616,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
       }
    }
 
-   void WInconsistent::InconsistentlyImpl(WInconsistentOp& op)
+   void WInconsistent::InconsistentlyImpl(Internal::WInconsistentOp& op)
    {
       WInconsistent ins;
       op.Run (ins);

@@ -1,0 +1,6 @@
+var searchData=
+[
+  ['disconnect',['Disconnect',['../class_w_s_t_m_1_1_w_deferred_result_1_1_w_connection.html#a22176672868575f70654e9c46bb1330d',1,'WSTM::WDeferredResult::WConnection::Disconnect()'],['../class_w_s_t_m_1_1_w_deferred_result_1_1_w_connection.html#a990e07801e032c1cb4a94d45345bec29',1,'WSTM::WDeferredResult::WConnection::Disconnect(WAtomic &amp;at)']]],
+  ['done',['Done',['../class_w_s_t_m_1_1_w_deferred_value.html#aa48ca151eeaf4ebdd3e5a38af239aa8b',1,'WSTM::WDeferredValue::Done(const Result_t &amp;res)'],['../class_w_s_t_m_1_1_w_deferred_value.html#a9fb43bd8a5dfe74e0b619ad21f555439',1,'WSTM::WDeferredValue::Done(const Result_t &amp;res, WAtomic &amp;at)'],['../class_w_s_t_m_1_1_w_deferred_value_3_01void_01_4.html#adecf86e402db8b0050abe6298568758f',1,'WSTM::WDeferredValue&lt; void &gt;::Done()'],['../class_w_s_t_m_1_1_w_deferred_value_3_01void_01_4.html#a19bb65a7f163fb3551de7dd0b671a1bc',1,'WSTM::WDeferredValue&lt; void &gt;::Done(WAtomic &amp;at)']]],
+  ['donedeferred',['DoneDeferred',['../group___deferred_result.html#gaab4595663bae08336f927017ac7031e6',1,'WSTM::DoneDeferred(const Result_t &amp;res)'],['../group___deferred_result.html#ga24ae298be45aa28491c29dc1aa337863',1,'WSTM::DoneDeferred()']]]
+];
