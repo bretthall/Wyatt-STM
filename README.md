@@ -15,6 +15,10 @@ In the `testing` directory there are some programs that exercise the library:
 
 * channel: This is a stress test for the multi-cast channel data structure that is part of the library.
 
+## Should I Use This?
+
+We've been using this library at Wyatt Technology in an application that we ship to customers for a years now. As such it can be considered stable. While it is stable, it does have some contention issues if run with too many threads (more than eight or ten as a suggestion). How much this contention is a problem varies from application to application. If you are going to use the library in a non-experimental manner then it would be best to do some prototyping first to see if you are getting performance that is good enough for your application. At some point we plan to remove this contention, but it hasn't been enough of an issue for us at Wyatt yet for much time to be devoted to it.
+
 ## Documentation
 The documentation for using the library is contained in the `doc` sub-directory.
 
