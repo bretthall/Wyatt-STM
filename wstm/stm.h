@@ -162,21 +162,17 @@ namespace WSTM
     *
     * @see WMaxConflicts
     */
-   struct WSTM_CLASSAPI WConflictResolution
+   enum class WConflictResolution
    {
-      //TODO: Switch to new-style enumerations
-      enum Value
-      {
-         /**
-          * A WMaxConflictsException will be thrown.
-          */
-         THROW,
-         /**
-          * The operation will be run with all other writes locked out thus guaranteeing that the
-          * operation can complete successfully
-          */
-         RUN_LOCKED	
-      };
+      /**
+       * A WMaxConflictsException will be thrown.
+       */
+      THROW,
+      /**
+       * The operation will be run with all other writes locked out thus guaranteeing that the
+       * operation can complete successfully
+       */
+      RUN_LOCKED	
    };
 
    /**
@@ -415,12 +411,12 @@ namespace WSTM
        * @param limit The maximum number of conflicts allowed.
        * @param res The conflict resolution to use if the limit is hit.
        */
-      WMaxConflicts(const unsigned int limit, const WConflictResolution::Value res = WConflictResolution::THROW);
+      WMaxConflicts(const unsigned int limit, const WConflictResolution res = WConflictResolution::THROW);
 
       //! The conflict limit.
       unsigned int m_max;
       //! The conflict resolution to use.
-      WConflictResolution::Value m_resolution;
+      WConflictResolution m_resolution;
    };
 
    /**

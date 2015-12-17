@@ -264,7 +264,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
       m_resolution (WConflictResolution::THROW)
    {}
    
-   WMaxConflicts::WMaxConflicts (const unsigned int m, const WConflictResolution::Value res) :
+   WMaxConflicts::WMaxConflicts (const unsigned int m, const WConflictResolution res) :
       m_max(m),
       m_resolution (res)
    {}
