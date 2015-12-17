@@ -179,7 +179,7 @@ namespace WSTM
       WDeferredValueBase () :
          m_core_p (std::make_shared<Core>())
       {
-         m_watch_p = std::make_shared<WDeferredValueWatch> (m_core_p);
+         m_watch_p = std::make_shared<Internal::WDeferredValueWatch> (m_core_p);
       }
 
       /**
@@ -255,7 +255,7 @@ namespace WSTM
       using CorePtr = std::shared_ptr<Core>;
       CorePtr m_core_p;
 
-      std::shared_ptr<WDeferredValueWatch> m_watch_p;
+      std::shared_ptr<Internal::WDeferredValueWatch> m_watch_p;
    };
 
    /**
