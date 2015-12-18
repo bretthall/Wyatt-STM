@@ -30,15 +30,15 @@ void DoStuff(WAtomic& at)
 }
 ```
 
-When a transaction ends the values of the `WVar`s that were read are checked against the current values of the variables. If any of the `WVar`s has been changed by another thread since it was first read in the transaction then that transaction is deemed invalid, its effects are thrown away, and the transaction starts over from the beginning. If all of the read values are still good then the transaction commits and the values set in the transaction become visible to other threads in an atomic fashion (i.e. if another thread can see one change it can see them all).
+When a transaction ends, the values of the `WVar`s that were read are checked against the current values of the variables. If any of the `WVar`s has been changed by another thread since it was first read in the transaction then that transaction is deemed invalid, its effects are thrown away, and the transaction starts over from the beginning. If all of the read values are still good then the transaction commits and the values set in the transaction become visible to other threads in an atomic fashion (i.e. if another thread can see one change it can see them all).
 
-`WVar` also has a `GetReadOnly` method that allows its value to read outside of a transaction. Note that this is just convenience method and is the equivalent of doing `Atomically ([&](WAtomic& at){return x.Get (at);});`. If you are reading multiple variables that you need to be consistent then you should read them all using `Get` in a single transaction instead of making multiple calls to `GetReadOnly`. The former will not only have better performance (starting a transaction is not free) but will also ensure that the set of values you get are consistent, i.e. none of them changed while you were doing the reads.
+`WVar` also has a `GetReadOnly` method that allows its value to read outside of a transaction. Note that this is just a convenience method and is the equivalent of doing `Atomically ([&](WAtomic& at){return x.Get (at);});`. If you are reading multiple variables that you need to be consistent then you should read them all using `Get` in a single transaction instead of making multiple calls to `GetReadOnly`. The former will not only have better performance (starting one transaction is cheaper than starting lots of transactions) but will also ensure that the set of values you get are consistent, i.e. none of them changed while you were doing the reads.
 
 The values stored in `WVar` must be copyable. In fact, the values stored are always copied into the `WVar` (moving values into `WVar` objects is problematic in the face of the transactions having conflicts and needing to be repeated). Also note that when getting a value from a `WVar` you either get a `const` reference or a copy depending on the type stored and whether you are in a transaction or not (`Get` can only be called in a transaction and can return a reference, `GetReadOnly` always returns a copy). If you get a reference instead of a copy be aware that that reference is only good during the transaction that `Get` was called in. If the value is to be used outside of the transaction it must be copied when leaving the transaction (this is what `GetReadOnly` does).
 
 ### Starting Transactions
 
-In the above example the `DoStuff` function takes a reference to a `WAtomic` object which represents the transaction. If you have one of these objects then you are in a transaction, but how do you get one? The `Atomically` function does this for you, you cannot directly create a `WAtomic` object yourself. `Atomically` takes a function object argument, creates a `WAtomic` object and then calls the function object passing the `WAtomic` object that it created. `Atomically` will then return whatever value the function object returns. `Atomically` handles validating and committing the transaction when the function object is done running and will call the function object again if the transaction is invalid. Because they may be called more than once it is very important that function objects passed to `Atomically` have no side-effects other than setting `WVar`s -- unless the side-effects can be harmlessly repeated like log statements. See `WAtomic::After` below for how to schedule non-idempotent (i.e. *not safe to repeat*) side-effects to occur when your transaction commits. 
+In the above example the `DoStuff` function takes a reference to a `WAtomic` object which represents the transaction. If you have one of these objects then you are in a transaction, but how do you get one? The `Atomically` function does this for you, you cannot directly create a `WAtomic` object yourself. `Atomically` takes a function object argument, creates a `WAtomic` object and then calls the function object passing the `WAtomic` object that it created. `Atomically` will then return whatever value the function object returns. `Atomically` handles validating and committing the transaction when the function object is done running and will call the function object again if the transaction is invalid. Because they may be called more than once it is very important that function objects passed to `Atomically` have no side-effects other than setting `WVar`s -- unless the side-effects can be harmlessly repeated (e.g. log statements). See `WAtomic::After` below for how to schedule non-idempotent (i.e. *not safe to repeat*) side-effects to occur when your transaction commits. 
 
 So to call `DoStuff` from the example above one would do:
 
@@ -66,11 +66,11 @@ try
 }
 catch (SomeException&)
 {
-}
 //at this point y still contains 0
+}
 ```
 
-While STM systems eliminate the possibility of dead-lock they can suffer from *starvation*. This occurs when a transaction that takes a long time to run is repeatedly invalidated by transactions running on other threads. To combat this you can set a limit on the number of times that a transaction will be restarted due to invalidation. When this limit is hit you have two options: have a `WMaxConflictsException` thrown or you can *run locked*. If you opt for the latter then your transaction will be restarted, only this time a flag is set that prevents all other transactions from committing until yours does. This guarantees that your transaction will be able to commit but is a heavy-handed approach and can cause performance degradation for the rest of the program as other threads have to wait until your transaction commits.
+While STM systems eliminate the possibility of dead-lock they can suffer from *starvation*. This occurs when a transaction that takes a long time to run is repeatedly invalidated by transactions running on other threads. To combat this you can set a limit on the number of times that a transaction will be restarted due to invalidation. When this limit is hit you have two options: have a `WMaxConflictsException` thrown or you can *run locked*. If you opt for the latter then your transaction will be restarted, only this time a flag is set that prevents all other transactions from committing until yours does. This guarantees that your transaction will be able to commit but is a heavy-handed approach and can cause performance degradation for the rest of the program as other threads have to wait until your transaction commits. In our experience it is rare that transactions need to run locked, but your mileage may vary.
 
 `Atomically` can take extra arguments after the function object to execute. These arguments set various options for the transaction and this is how you set the restart limit mentioned above. Specifically, you pass a `WMaxConflicts` object to `Atomically`. The `WMaxConflicts` constructor allows you to set what to do when the limit is hit, either `WConflictResolution::THROW` or `WConflictResolution::RUN_LOCKED`. For example, if you wanted to limit the restarts to five and then run locked when the limit was hit you could do
 
@@ -79,13 +79,13 @@ auto Func = [](WAtomic& at){return x.Get (at) + 1;};
 Atomically (Func, WMaxConflicts (5, WConflictResolution::RUN_LOCKED));
 ```
 
-There are other options that can be passed to `Atomically`, we'll cover those later. Note that the order of the options doesn't matter. The only requirement is that the function to execute in a transaction is the first argument to Atomically.
+There are other options that can be passed to `Atomically` which we'll cover later. For the moment note that the order of the options doesn't matter. The only requirement is that the function to execute in a transaction is the first argument to Atomically.
 
 ### Nested Transactions
 
-`Atomically` can be called from a function that is already running under another call to `Atomically`. This will create a new transaction and when this new transaction commits the contents of the transaction will be moved into the enclosing transaction. They will not become visible to other threads until the top-level transaction commits.
+`Atomically` can be called from a function that is already running under another call to `Atomically`. This will create a new transaction and when this new transaction commits any changes made in the transaction will be merged into the enclosing transaction. The changes will not become visible to other threads until the top-level transaction commits.
 
-If the child transaction is aborted by throwing an exception and that exception is caught before it has propogated out of the parenttransaction then the parent transaction will simply continue from the point where the exception was caught. The changes from the child transaction are thrown away and the parent transaction behaves as though it had never started the child transaction. If the exception is not caught within the parent transaction then the parent transaction will be aborted as well.
+If the child transaction is aborted by throwing an exception and that exception is caught before it has propogated out of the parent transaction then the parent transaction will simply continue from the point where the exception was caught. The changes from the child transaction are thrown away and the parent transaction behaves as though it had never started the child transaction. If the exception is not caught within the parent transaction then the parent transaction will be aborted as well.
 
 If you think that a function will be called within a transaction then you should have it take a `WAtomic` argument, even if it isn't meant to be called directly. It is much cheaper to pass an existing `WAtomic` object to a function then to go through all the rigmarole of calling it through `Atomically`. Much of the time it is a good idea to create *atomic* and *non-atomic* versions of the function for convenience's sake:
 
@@ -178,7 +178,7 @@ There can be rare cases where you need to do something just before the transacti
 
 ### On Fail Actions
 
-In some cases you may want to take some action if a transaction fails to commit. `WAtomic::OnFail` is the what you want in this case. Any function passed to `OnFail` will be called if the transaction ends without successfully committing. The commit could fail due to a conflict, an exception being thrown, or `Retry` being called. In any of those cases the `OnFail` functions will be called. The use cases for `OnFail` are few, most of the time the same effect can be accomplished using RAII and/or `shared_ptr` for resource management. 
+In some cases you may want to take some action if a transaction fails to commit. `WAtomic::OnFail` is what you want in this case. Any function passed to `OnFail` will be called if the transaction ends without successfully committing. The commit could fail due to a conflict, an exception being thrown, or `Retry` being called. In any of those cases the `OnFail` functions will be called. The use cases for `OnFail` are few, most of the time the same effect can be accomplished using RAII and/or `shared_ptr` for resource management. 
 
 ### NO_ATOMIC
 
@@ -281,7 +281,7 @@ void DoSomethingOnceMaybe ()
 }
 ```
 
-In the above example we have something that we only want to do once per transaction, but multiple code paths that can lead to it being done. So we use a `WTransactionLocalFlag` to protect the doing of the thing. This example is a contrived, and we could easily accomplish doing the thing only once by combining the conditions on `x` and `y` or be returning after calling `DoSomethingOnce`. But in more complicated code where these simplifications aren't possible `WTransactionLocalFlag` can help simplify things.
+In the above example we have something that we only want to do once per transaction, but multiple code paths that can lead to it being done. So we use a `WTransactionLocalFlag` to protect the doing of the thing. This example is a contrived, and we could easily accomplish the same thing by combining the conditions on `x` and `y` or be returning after calling `DoSomethingOnce`. But in more complicated code where these simplifications aren't possible `WTransactionLocalFlag` can help simplify things.
 
 ### Pitfalls
 
@@ -293,7 +293,7 @@ Since transactions are repeated when conflicts are encountered one has to be car
 
 #### Value Consistency
 
-Let's say we have two `WVar` objects called `x` and `y` and they have an invariant `x > y` that is enforced by all transactions that touch those variables. Unfortunately, it is still possible in our system for a transaction to see the invariant being violated. When this happens the transaction that can see the invariant being violated already has a conflict and will not be able to commit, but we can still run into problems depending on what is being done with the inconsistent values while still in the transaction. To see how this can happen and a problem that can arise say we are doing this
+Let's say we have two `WVar` objects called `x` and `y` and they have an invariant `x > y` that is enforced by all transactions that touch those variables. Unfortunately, it is still possible for a transaction to see the invariant being violated. When this happens the transaction that can see the invariant being violated already has a conflict and will not be able to commit. But we can still run into problems depending on what is being done with the inconsistent values while still in the transaction. To se how this can happen and a problem that can arise say we are doing this
 
 ```C++
 WVar<size_t> x (10);
@@ -319,7 +319,7 @@ std::vector<int> AllocateBasedOnXAndY ()
 }
 ```
 
-We have two threads, one is executing `AllocateBasedOnXAndY` and the other is executing `ChangeXAndY`. Say that one thread does the read of `x` in `AllocateBasedOnXAndY` and then, before is can read `y`, the other thread commits the changes made in `ChangeXAndY` (which maintains the invariant that `x > y`). We then read `y` in the first thread and end up with `x1 == 10` and `y1 == 11` violating the invariant. Obviously we have a conflict here and the transaction won't commit, but that won't be discovered until we try to create a ridiculously large vector resulting in an exception being thrown when enough memory cannot be allocated.
+We have two threads, one is executing `AllocateBasedOnXAndY` and the other is executing `ChangeXAndY`. Say that one thread does the read of `x` in `AllocateBasedOnXAndY` and then, before it can read `y`, the other thread commits the changes made in `ChangeXAndY` (which maintains the invariant that `x > y`). We then read `y` in the first thread and end up with `x1 == 10` and `y1 == 11` violating the invariant. Obviously we have a conflict here and the transaction won't commit, but that won't be discovered until after we try to create a ridiculously large vector resulting in an exception being thrown when enough memory cannot be allocated.
 
 To fix this we can add a manual validation before allocating the vector
 
@@ -338,7 +338,7 @@ std::vector<int> AllocateBasedOnXAndY ()
 
 This way the transaction will be restarted if the `x` and `y` values aren't consistent. In this case we could also move the creation of the vector out of the transaction and only retrieve the values in the transaction. This would avoid the allocation issue, as long as `AllocateBasedOnXAndY` hasn't been called from within another transaction. To avoid this we would need to stick a `NO_ATOMIC` on `AllocateBasedOnXAndY`. That might be something you want to avoid, in that case `Validate` is the way to go.
 
-Generally it is rare that `Validate` needs to be used like this. Cases where invariant violation can cause problems in transactions that leak out into the code that started the transaction are few. Arguably, memory allocation is a side-effect that shouldn't be done in a transaction and that is the real problem in the above example. But if RAII is used then memory allocation can be considered an idempotent side-effect that can be safely repeated. One just has to watch out for invariant violation as we saw above.
+Generally it is rare that `Validate` needs to be used like this. Cases where invariant violation can cause problems in transactions that leak out into the code that started the transaction are few. Arguably, memory allocation is a side-effect that shouldn't be done in a transaction and that is the real problem in the above example. But if RAII is used then memory allocation can be considered an idempotent side-effect that can be safely repeated, one just has to watch out for invariant violation as we saw above.
 
 #### Expensive To Copy Objects
 
