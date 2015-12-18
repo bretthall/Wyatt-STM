@@ -21,7 +21,7 @@ In the `testing` directory there are some programs that exercise the library:
 
 ## Should I Use This?
 
-We've been using this library at Wyatt Technology in an application that we ship to customers for a years now. As such it can be considered stable. While it is stable, it does have some contention issues if run with too many threads (more than eight or ten as a suggestion). How much this contention is a problem varies from application to application. If you are going to use the library in a non-experimental manner then it would be best to do some prototyping first to see if you are getting performance that is good enough for your application. At some point we plan to remove this contention, but it hasn't been enough of an issue for us at Wyatt yet for much time to be devoted to it.
+We've been using this library at Wyatt Technology in an application that we ship to customers for years now. As such it can be considered stable. While it is stable, it does have some contention issues if run with too many threads. How many threads is *too many* depends on how intensly the library is being used (at Wyatt we have no problems with up to 8 computation heavy threads plus a few more IO bound threads, all of which are making medium to heavy usage of transactions). If you are going to use the library in a non-experimental manner then it would be best to do some prototyping first to see if you get performance that is good enough for your application. At some point we plan to remove this contention, but it hasn't been enough of an issue for us at Wyatt yet for much time to be devoted to it.
 
 ## Documentation
 The documentation for using the library is contained in the `doc` sub-directory.
