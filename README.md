@@ -2,6 +2,10 @@
 
 This is a software transactional memory (STM) system developed at Wyatt Technology for use in their [Dynamics data collection and analysis package](http://www.wyatt.com/products/software/dynamics.html). This package includes the STM library itself (including some data structures built on top of the core STM functionality) and a suite of test programs to ensure its correct functioning. 
 
+## More Information
+
+The home for this project is on [github](https://github.com/WyattTechnology/Wyatt-STM). There is also a [google group](https://groups.google.com/d/forum/wyatt-stm) for discussing usage and developement.
+
 ## Contents
 The main STM library is in the `wstm` (headers) and `src` (implementation) directories.
 
