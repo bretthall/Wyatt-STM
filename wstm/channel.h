@@ -204,7 +204,7 @@ namespace WSTM
    /**
     * Base class for exceptions thrown by WChannel functions.
     */
-   struct WSTM_CLASSAPI WChannelError
+   struct WSTM_CLASSAPI WChannelError : public WException
    {
       /**
        * Creats an exception object.
@@ -212,9 +212,6 @@ namespace WSTM
        * @param msg The exception's message.
        */
       WChannelError (const std::string& msg);
-
-      //! The exception's message.
-      std::string m_msg;
    };
 
    /**

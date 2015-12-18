@@ -33,7 +33,7 @@
 namespace WSTM
 {
    WChannelError::WChannelError (const std::string& msg):
-      m_msg (msg)
+      WException (msg)
    {}
 
    WInvalidChannelError::WInvalidChannelError():

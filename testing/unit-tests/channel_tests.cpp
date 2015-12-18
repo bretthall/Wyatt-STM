@@ -74,7 +74,7 @@ namespace
 BOOST_AUTO_TEST_CASE (invalid_channel_test_message)
 {
    WInvalidChannelError err;
-   BOOST_CHECK (err.m_msg == "Attempt to use an invalid channel");
+   BOOST_CHECK_EQUAL (std::string (err.what ()), std::string ("Attempt to use an invalid channel"));
 }
 
 BOOST_AUTO_TEST_CASE (test_ctor)

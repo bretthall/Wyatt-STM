@@ -88,6 +88,8 @@ set(WSTM_SOURCES
   src/stm.cpp
   src/channel.cpp
   src/deferred_result.cpp
+  src/persistent_list.cpp
+  src/exception.cpp
   src/exception_capture.cpp)
 
 add_library(wstm ${WSTM_SOURCES})

@@ -44,8 +44,6 @@
 
 namespace WSTM
 {
-   //TODO: these should be derived from WException
-
    /**
     * @defgroup DeferredResult Deferred Results
     *
@@ -59,7 +57,7 @@ namespace WSTM
    /**
     * Exception thrown by some methods of WDeferredResult if the result is not available yet.
     */
-   class WSTM_CLASSAPI WNotDoneError : public std::runtime_error
+   class WSTM_CLASSAPI WNotDoneError : public WException
    {
    public:
       //!Creates an exception object.
@@ -69,7 +67,7 @@ namespace WSTM
    /**
     * Exception thrown by some methods of WDeferredValue if the value is already in the done state.
     */
-   class WSTM_CLASSAPI WAlreadyDoneError : public std::runtime_error
+   class WSTM_CLASSAPI WAlreadyDoneError : public WException
    {
    public:
       //!Creates an exception object.
@@ -370,13 +368,11 @@ namespace WSTM
    };
 
    
-   //TODO: these should be derived from WException
-   
    /**
     * Exception thrown by WDeferredResult methods if the WDeferredResult object is not associated
     * with a WDeferredValue object.
     */
-   class WSTM_CLASSAPI WInvalidDeferredResultError : public std::runtime_error
+   class WSTM_CLASSAPI WInvalidDeferredResultError : public WException
    {
    public:
       //!Creates an exception object.
@@ -387,7 +383,7 @@ namespace WSTM
     * Exception thrown through WDeferredResult if the associated WDeferredValue goes away without
     * setting the result.
     */
-   class WSTM_CLASSAPI WBrokenPromiseError : public std::runtime_error
+   class WSTM_CLASSAPI WBrokenPromiseError : public WException
    {
    public:
       //!Creates an exception object.

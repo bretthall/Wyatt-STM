@@ -32,6 +32,7 @@
 
 #include "exports.h"
 #include "find_arg.h"
+#include "exception.h"
 
 #ifdef WIN32
 //There is a bug in boost::shared_mutex on windows (https://svn.boost.org/trac/boost/ticket/7720),
@@ -762,27 +763,7 @@ namespace WSTM
       }
       
    }
-
-   /**
-    * Base class for all exceptions thrown by WSTM functions.
-    */
-   struct WSTM_CLASSAPI WException
-   {
-      /**
-       * Creates an exception.
-       *
-       * @param msg The exception's message.
-       */
-      WException (const std::string& msg);
-
-      //! The exception's message.
-      const std::string m_msg;
-  
-   private:
-      //TODO: make m_msg mutable so we can get rid of this
-      WException& operator= (const WException&) { return *this; }   // Silence warning 4512.
-   };
-
+   
    /**
     * Base class for exceptions thrown by Atomically.
     */

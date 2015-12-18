@@ -249,12 +249,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
          const WTimeArg m_timeout;
       };   
    }
-
-
-   WException::WException (const std::string& msg):
-      m_msg (msg)
-   {}
-
+   
    WCantContinueException::WCantContinueException(const std::string& msg):
       WException(msg)
    {}

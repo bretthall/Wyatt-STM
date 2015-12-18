@@ -184,19 +184,19 @@ namespace WSTM
    }
 
    WNotDoneError::WNotDoneError ():
-      std::runtime_error ("Deferred result is not done yet")
+      WException ("Deferred result is not done yet")
    {}
    
    WAlreadyDoneError::WAlreadyDoneError ():
-      std::runtime_error ("Deferred result is already done")
+      WException ("Deferred result is already done")
    {}
    
    WInvalidDeferredResultError::WInvalidDeferredResultError ():
-      std::runtime_error ("Deferred result is no connected to a deferred value")
+      WException ("Deferred result is no connected to a deferred value")
    {}
    
    WBrokenPromiseError::WBrokenPromiseError ():
-      std::runtime_error ("Deferred value was not set done before destruction")
+      WException ("Deferred value was not set done before destruction")
    {}
 
 }

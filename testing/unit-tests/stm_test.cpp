@@ -79,7 +79,7 @@ BOOST_AUTO_TEST_CASE (ExceptionTests_test_cantContinueException)
                 WSTM::WCantContinueException>::value));
 	const std::string msg = "CantContinueException";
 	WSTM::WCantContinueException exc(msg);
-	BOOST_CHECK(exc.m_msg == msg);
+	BOOST_CHECK(std::string (exc.what ()) == msg);
 }
 
 BOOST_AUTO_TEST_CASE (ExceptionTests_test_MaxRetriesException)
@@ -90,7 +90,7 @@ BOOST_AUTO_TEST_CASE (ExceptionTests_test_MaxRetriesException)
 	const unsigned int num = 10;
 	const std::string msg = str(format("Hit maximum number of retries (%1%)") % num);
 	WSTM::WMaxRetriesException exc(num);
-	BOOST_CHECK(exc.m_msg == msg);
+	BOOST_CHECK(std::string (exc.what ()) == msg);
 }
 
 BOOST_AUTO_TEST_CASE (ExceptionTests_test_MaxConflictsException)
@@ -101,7 +101,7 @@ BOOST_AUTO_TEST_CASE (ExceptionTests_test_MaxConflictsException)
 	const unsigned int num = 10;
 	const std::string msg = str(format("Hit maximum number of conflicts (%1%)") % num);
 	WSTM::WMaxConflictsException exc(num);
-	BOOST_CHECK(exc.m_msg == msg);
+	BOOST_CHECK(std::string (exc.what ()) == msg);
 }
 
 BOOST_AUTO_TEST_SUITE_END(/*ExceptionTests*/)

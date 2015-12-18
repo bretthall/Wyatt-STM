@@ -30,6 +30,8 @@
 
 #pragma once
 
+#include "exception.h"
+
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/iterator/reverse_iterator.hpp>
 #include <boost/call_traits.hpp>
@@ -55,20 +57,22 @@ namespace WSTM
     */
    ///@{
 
-   //TODO: should be based on WException
-   
    /**
     * Exception thrown by WPersistentList methods when an invalid iterator is used.
     */
-   struct WInvalidIteratorError
-   {};
+   struct WInvalidIteratorError : public WException
+   {
+      WInvalidIteratorError ();
+   };
 
    /**
     * Exception thrown by WPersistentList methods when there is no element available for the given
     * operation.
     */
-   struct WNoElementError
-   {};
+   struct WNoElementError : public WException
+   {
+      WNoElementError ();
+   };
 
    /**
     * List that persists after modifications. What this means is that if you have a list and then
