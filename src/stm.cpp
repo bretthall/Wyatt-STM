@@ -746,29 +746,14 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
          assert (m_active);
          assert (m_parent_p);
 
-         //we can't use unordered_map::insert here because it won't
-         //update elements that are already in the parent transaction
          for (VarMap::value_type& value: m_got)
          {
-            VarMap::iterator it;
-            bool inserted = false;
-            std::tie (it, inserted) = m_parent_p->m_got.insert (value);
-            if (!inserted)
-            {
-               it->second = value.second;
-            }
+            m_parent_p->m_got[std::get<0>(value)] = std::move (std::get<1>(value));
          }
          for (VarMap::value_type& value: m_set)
          {
-            VarMap::iterator it;
-            bool inserted = false;
-            std::tie (it, inserted) = m_parent_p->m_set.insert (value);
-            if (!inserted)
-            {
-               it->second = value.second;
-            }
+            m_parent_p->m_set[std::get<0>(value)] = std::move (std::get<1>(value));
          }
-
          for (auto& val: m_locals)
          {
             m_parent_p->m_locals[val.first] = std::move (val.second);
@@ -794,13 +779,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
          
          for (VarMap::value_type& value: m_got)
          {
-            VarMap::iterator it;
-            bool inserted = false;
-            std::tie (it, inserted) = m_parent_p->m_got.insert (value);
-            if (!inserted)
-            {
-               it->second = value.second;
-            }
+            m_parent_p->m_got[std::get<0>(value)] = std::move (std::get<1>(value));
          }
 
          Clear ();
