@@ -1078,6 +1078,14 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
       }      
 #endif //_DEBUG
 
+      WGlobalReadLock::WGlobalReadLock ():
+         m_lock(s_readMutex)
+      {}
+
+      WGlobalCommitLock::WGlobalCommitLock ():
+         m_lock(s_readMutex)
+      {}
+
       WValueBase::WValueBase (const size_t version):
          m_version (version)
       {}
@@ -1106,6 +1114,14 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
 #endif //DEBUG
    }
 
+   //This creates a "temporary" WAtomic object for the current transaction. This is only used by
+   //GetCurrentTransaction. The WAtomic created by Atomically will outlive this object and will
+   //handle committing and abandoning.
+   WAtomic::WAtomic (Internal::WTransactionData* data_p):
+      m_data_p (data_p),
+      m_committed (true)
+   {}
+   
    void WAtomic::Validate() const
    {
       boost::unique_lock<WReadLock> lock(m_data_p->GetReadLock (), boost::defer_lock_t ());
@@ -1440,6 +1456,34 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
       {
          s_transData_p->Abandon ();
       }
+   }
+
+   WTemporaryAtomic::WTemporaryAtomic (Internal::WTransactionData* data_p):
+      m_data_p (data_p),
+      m_atomic (data_p)
+   {}
+   
+   WTemporaryAtomic::operator bool () const
+   {
+      return (m_data_p != nullptr);
+   }
+   
+   WAtomic& WTemporaryAtomic::operator*()
+   {
+      return m_atomic;
+   }
+
+   WTemporaryAtomic GetCurrentTransaction ()
+   {
+      if (auto data_p = s_transData_p->Get ())
+      {
+         if (data_p->IsActive ())
+         {
+            return WTemporaryAtomic (data_p);
+         }
+      }
+      
+      return WTemporaryAtomic (nullptr);
    }
 
    namespace

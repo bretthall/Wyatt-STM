@@ -384,6 +384,27 @@ namespace WSTM
       ReadLockable_t* m_lockable_p;
    };
 
+   namespace Internal
+   {
+      class WGlobalReadLock
+      {
+      public:
+         WGlobalReadLock ();
+
+      private:
+         boost::shared_lock<boost::upgrade_mutex> m_lock;
+      };
+
+      class WGlobalCommitLock
+      {
+      public:
+         WGlobalCommitLock ();
+
+      private:
+         boost::unique_lock<boost::upgrade_mutex> m_lock;
+      };
+   }
+
    /**
     * @defgroup atomically_options Options For Atomically
     *
@@ -478,7 +499,8 @@ namespace WSTM
    {
       template <typename> friend class WVar;
       template <typename> friend class WTransactionLocalValue;
-
+      friend class WTemporaryAtomic;
+      
      public:
       /**
        * Checks the current transaction for memory consistency. If any of the WVar objects's that have
@@ -581,7 +603,8 @@ namespace WSTM
 				
    private:		
       WAtomic();
-
+      WAtomic (Internal::WTransactionData* data_p);
+      
       WAtomic (const WAtomic&);
       WAtomic& operator=(const WAtomic&);
       
@@ -635,6 +658,44 @@ namespace WSTM
       Internal::WTransactionData* m_data_p;
       bool m_committed;
    };
+
+   /**
+    * A "temporary" transaction object. These are returned by GetCurrentTransaction and will only be
+    * valid if that function was called in a transaction and that transaction is still in effect.
+    */
+   class WTemporaryAtomic
+   {
+      friend WTemporaryAtomic GetCurrentTransaction ();
+
+   public:
+      /**
+       * Checks whether this object is valid. It will only be valid if the call to
+       * GetCurrentTransaction that created it was done within a transaction.
+       *
+       * @return true if the object is valid, false otherwise.
+       */
+      operator bool () const;
+      
+      /**
+       * Gets a WAtomic object associated with the current transaction. This will not be the same
+       * object as that created by the call to Atomically, but can be used interchangeably with that
+       * object.
+       */
+      WAtomic& operator*();
+      
+   private:
+      WTemporaryAtomic (Internal::WTransactionData* data_p);
+      Internal::WTransactionData* m_data_p;      
+      WAtomic m_atomic;
+   };
+
+   /**
+    * Gets a WAtomic object that is associated with the current transaction.
+    *
+    * @return A boost::optional that will contain the WAtomic object or boost::none if there is no
+    * transaction.
+    */
+   WTemporaryAtomic GetCurrentTransaction ();
    
    /**
     * Functions passed to Inconsistently must take a reference to one of these objects as their
@@ -1100,7 +1161,15 @@ namespace WSTM
        */
       Type GetReadOnly() const
       {
-         return Atomically ([&](WAtomic& at){return Get (at);});
+         if (auto at = GetCurrentTransaction ())
+         {
+            return Get (*at);
+         }
+         else
+         {
+            Internal::WGlobalReadLock lock;
+            return m_core_p->m_value_p->m_value;
+         }
       }
 
       /**
@@ -1141,7 +1210,16 @@ namespace WSTM
        */
       void Set(param_type val)
       {
-         Atomically ([&](WAtomic& at){Set (val, at);});
+         if (auto at = GetCurrentTransaction ())
+         {
+            Set (val, *at);
+         }
+         else
+         {
+            Internal::WGlobalCommitLock lock;
+            const auto oldVersion = m_core_p->m_value_p->m_version;
+            m_core_p->m_value_p = std::make_shared<Internal::WValue<Type_t>>(oldVersion + 1, val);;
+         }
       }
 
       /**
