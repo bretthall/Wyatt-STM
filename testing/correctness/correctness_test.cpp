@@ -410,9 +410,16 @@ bool MaybeSpawnThread  (WContext& context, std::mt19937& mt)
    return false;
 }
 
+#ifdef WIN32
+#pragma warning (push)
+#pragma warning (disable: 4592)
+#endif
 using Action = std::function<bool (WContext&, std::mt19937&)>;
 const std::vector<Action> actions = {UpdateVars, ReadInconsitent, RetryOnVars, MaybeRemoveVar, MaybeAddVar, MaybeExitThread, MaybeSpawnThread};
-   
+#ifdef WIN32
+#pragma warning (pop)
+#endif
+
 void RunTest (WContext& context)
 {
    auto mt = std::mt19937 (std::random_device ()());
