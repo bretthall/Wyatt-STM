@@ -1122,7 +1122,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
    bool WAtomic::DoValidation() const
    {
       assert(Internal::ReadLocked() || Internal::UpgradeLocked ());
-      for (const VarMap::value_type& val: m_data_p->GetGot ())
+      for (const Internal::VarMap::value_type& val: m_data_p->GetGot ())
       {
          if (!val.first->Validate (*val.second))
          {
@@ -1251,7 +1251,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
             {   
                //scope introduced so that wlock goes away at end of block
                WWriteLock wlock(m_data_p->GetUpgradeLock ());
-               for (const VarMap::value_type& val: m_data_p->GetSet ())
+               for (const Internal::VarMap::value_type& val: m_data_p->GetSet ())
                {
                   //save old values until after we're done committing
                   //in case they run transactions in their destructors
@@ -1354,7 +1354,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
       while (data_p)
       {
          //first try the set value
-         VarMap::iterator it = data_p->GetSet ().find (core_p);
+         Internal::VarMap::iterator it = data_p->GetSet ().find (core_p);
          if (it != data_p->GetSet ().end ())
          {
             return it->second.get ();
@@ -1408,7 +1408,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
       //even if they have already been set in the parent. When this
       //transaction commits the set values will be merged into the
       //parent transaction.
-      VarMap::iterator it = m_data_p->GetSet ().find (core_p);
+      Internal::VarMap::iterator it = m_data_p->GetSet ().find (core_p);
       if (it != m_data_p->GetSet ().end ())
       {
          return it->second.get ();

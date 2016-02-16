@@ -47,6 +47,7 @@
 #include <boost/thread/shared_mutex.hpp>
 
 #include <chrono>
+#include <unordered_map>
 
 /**
  * @file stm.h
@@ -135,6 +136,89 @@ namespace WSTM
     */
    WProfileData WSTM_LIBAPI Checkpoint ();
    ///@}
+
+   /**
+    * The conflict profiling API. These functions are all no-ops unless the wstm library was built
+    * with conflict profiling turned on (define WSTM_CONFLICT_PROFILING). The system needs to be
+    * initilized by calling ConflictProfiling::Initialize in the main thread of the program (despite
+    * the name, this method can be called anytime before the main thread exits).
+    */
+   namespace ConflictProfiling
+   {
+      /**
+       * Initializes conflict profiling. This needs to be called at the start of the program in its
+       * main thread. This is a no-op if conflict profiling was not enabled during the building of the
+       * wstm library.
+       */
+      void WSTM_LIBAPI Initialize ();
+
+      ///@{
+      /**
+       * Assigns a name to a thead that it will be refenenced by in the profiling data. Call this
+       * once in the thread sometime before it exits. Threads don't need to be named, this is just
+       * for convenvience when examing the profiling data. This is a no-op if conflict profiling was
+       * not enabled during the building of the wstm library.
+       */
+      void WSTM_LIBAPI NameThread (const char* name);
+      void WSTM_LIBAPI NameThread (const std::string& name);
+#ifdef WSTM_CONFLICT_PROFILING
+#define WSTM_NAME_THREAD(name) NameThread (name)
+#else
+#define WSTM_NAME_THREAD(name)
+#endif
+      ///@}
+      
+      ///@{
+      /**
+       * Assigns a name to a transaction that it will be referenced by in the profiling data. Call
+       * this once in the transaction sometime before it finishes. Transactions don't need to be
+       * named, this is just for convenvience when examing the profiling data. This is a no-op if
+       * conflict profiling was not enabled during the building of the wstm library.
+       */
+      void WSTM_LIBAPI NameTransaction (const char* name);
+      void WSTM_LIBAPI NameTransaction (const std::string& name);
+#ifdef WSTM_CONFLICT_PROFILING
+#define WSTM_NAME_TRANSACTION(name) NameTransaction (name)
+#else
+#define WSTM_NAME_TRANSACTION(name)
+#endif
+      ///@}
+
+      ///@{
+      /**
+       * Assigns a name to a WVar that it will be referenced by in the profiling data. Do not call
+       * this directly, instead call WVar::NameForConflictProfiling.
+       */
+      void WSTM_LIBAPI NameVar (void* core_p, const char* name);
+      void WSTM_LIBAPI NameVar (void* core_p, const std::string& name);
+      ///@}
+
+      ///@{
+      /**
+       * Assigns a name to a WVar that it will be referenced by in the profiling data. Call this
+       * once for a given variable. WVar's don't need to be named, this is just for convenvience
+       * when examing the profiling data. This is a no-op if conflict profiling was not enabled
+       * during the building of the wstm library.
+       */
+#ifdef WSTM_CONFLICT_PROFILING
+#define WSTM_NAME_VAR(var, name) var.NameForConflictProfiling (name)
+#else
+#define WSTM_NAME_VAR(var, name) 
+#endif
+      ///@}
+
+      /**
+       * Clears any profiling data that has accumulated.
+       */
+      void ClearProfileData ();
+
+      /**
+       * Routines that are only meant to be used when testing the profiling system.
+       */
+      namespace Testing
+      {
+      }
+   }
    
    /**
     * Constant that denotes an unlimited number of tries.
@@ -309,7 +393,21 @@ namespace WSTM
       WVarCore<Type_t>::WVarCore(std::shared_ptr<WValue<Type_t>>&& val_p):
          m_value_p (std::move (val_p))
       {}
-      
+
+      struct WValueCoreBaseHash
+      {
+         size_t operator()(const std::shared_ptr<Internal::WVarCoreBase>& p) const
+         {
+            return m_hash (p.get ());
+         }
+
+         std::hash<Internal::WVarCoreBase*> m_hash;
+      };
+
+      using VarMap =  std::unordered_map<std::shared_ptr<Internal::WVarCoreBase>,
+                                         std::shared_ptr<Internal::WValueBase>,
+                                         WValueCoreBaseHash>;
+
       struct WSTM_CLASSAPI WLocalValueBase
       {
       public:
@@ -1167,6 +1265,21 @@ namespace WSTM
             }
          }
       }
+
+      ///@{
+      /**
+       * Names this variable for conflict profiling. Var's don't have to be named, it just makes it
+       * easier to reference them in the profiling data.
+       */
+      void NameForConflictProfiling (const char* name)
+      {
+         ConflictProfiling::NameVar (m_core_p.get (), name);
+      }
+      void NameForConflictProfiling (const std::string& name)
+      {
+         ConflictProfiling::NameVar (m_core_p.get (), name);
+      }
+      ///@}
       
    private:
       typename std::shared_ptr<Internal::WVarCore<Type_t>> m_core_p;

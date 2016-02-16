@@ -90,7 +90,8 @@ set(WSTM_SOURCES
   src/deferred_result.cpp
   src/persistent_list.cpp
   src/exception.cpp
-  src/exception_capture.cpp)
+  src/exception_capture.cpp
+  src/conflict_profiling_internal.cpp)
 
 add_library(wstm ${WSTM_SOURCES})
 set_property(TARGET wstm PROPERTY CXX_STANDARD 14)
