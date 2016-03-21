@@ -58,6 +58,7 @@ namespace WSTM { namespace ConflictProfilingInternal
 
       struct WTransaction : WFrameHeader
       {
+         std::thread::id m_threadId;
          const char* m_threadName;
          std::chrono::high_resolution_clock::time_point m_start;
          std::chrono::high_resolution_clock::time_point m_end;
@@ -68,9 +69,10 @@ namespace WSTM { namespace ConflictProfilingInternal
       };
       static_assert (sizeof(WTransaction) ==
                      (sizeof(WFrameHeader)
+                      + sizeof(std::thread::id)
                       + 2*sizeof(std::chrono::high_resolution_clock::time_point)
                       + 2*sizeof(char*)
-                      + 2*sizeof(uint16_t) + 4), "Bad WTransaction size");
+                      + 2*sizeof(uint16_t)), "Bad WTransaction size");
 
       struct WNameData : WFrameHeader
       {
@@ -390,6 +392,7 @@ namespace WSTM { namespace ConflictProfilingInternal
          auto frame_p = reinterpret_cast<Frames::WTransaction*>(dest_p);
          frame_p->m_type = type;
          frame_p->m_name = m_curTransactionName;
+         frame_p->m_threadId = std::this_thread::get_id ();
          frame_p->m_threadName = m_threadName;
          frame_p->m_start = m_curTransactionStart;
          frame_p->m_end = end;

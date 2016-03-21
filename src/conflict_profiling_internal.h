@@ -162,6 +162,7 @@ namespace WSTM
       struct WConflict
       {
          const void* m_transactionName;
+         std::thread::id m_threadId;
          const void* m_threadName;
          std::chrono::high_resolution_clock::time_point m_start;
          std::chrono::high_resolution_clock::time_point m_end;
