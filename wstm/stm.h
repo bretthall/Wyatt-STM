@@ -33,6 +33,7 @@
 #include "exports.h"
 #include "find_arg.h"
 #include "exception.h"
+#include "maybe_unused.h"
 
 #ifdef WIN32
 //There is a bug in boost::shared_mutex on windows (https://svn.boost.org/trac/boost/ticket/7720),
@@ -145,12 +146,6 @@ namespace WSTM
     */
    namespace ConflictProfiling
    {
-      /**
-       * Initializes conflict profiling. This needs to be called at the start of the program in its
-       * main thread. This is a no-op if conflict profiling was not enabled during the building of the
-       * wstm library.
-       */
-      void WSTM_LIBAPI Initialize ();
 
       ///@{
       /**
@@ -158,14 +153,10 @@ namespace WSTM
        * once in the thread sometime before it exits. Threads don't need to be named, this is just
        * for convenvience when examing the profiling data. This is a no-op if conflict profiling was
        * not enabled during the building of the wstm library.
+       *
+       * @param name The name to assign. This must be a string literal.
        */
       void WSTM_LIBAPI NameThread (const char* name);
-      void WSTM_LIBAPI NameThread (const std::string& name);
-#ifdef WSTM_CONFLICT_PROFILING
-#define WSTM_NAME_THREAD(name) NameThread (name)
-#else
-#define WSTM_NAME_THREAD(name)
-#endif
       ///@}
       
       ///@{
@@ -174,23 +165,10 @@ namespace WSTM
        * this once in the transaction sometime before it finishes. Transactions don't need to be
        * named, this is just for convenvience when examing the profiling data. This is a no-op if
        * conflict profiling was not enabled during the building of the wstm library.
+       *
+       * @param name The name to assign. This must be a string literal.
        */
       void WSTM_LIBAPI NameTransaction (const char* name);
-      void WSTM_LIBAPI NameTransaction (const std::string& name);
-#ifdef WSTM_CONFLICT_PROFILING
-#define WSTM_NAME_TRANSACTION(name) NameTransaction (name)
-#else
-#define WSTM_NAME_TRANSACTION(name)
-#endif
-      ///@}
-
-      ///@{
-      /**
-       * Assigns a name to a WVar that it will be referenced by in the profiling data. Do not call
-       * this directly, instead call WVar::NameForConflictProfiling.
-       */
-      void WSTM_LIBAPI NameVar (void* core_p, const char* name);
-      void WSTM_LIBAPI NameVar (void* core_p, const std::string& name);
       ///@}
 
       ///@{
@@ -199,24 +177,41 @@ namespace WSTM
        * once for a given variable. WVar's don't need to be named, this is just for convenvience
        * when examing the profiling data. This is a no-op if conflict profiling was not enabled
        * during the building of the wstm library.
+       *
+       * @param name The name to assign. This must be a string literal.
        */
-#ifdef WSTM_CONFLICT_PROFILING
-#define WSTM_NAME_VAR(var, name) var.NameForConflictProfiling (name)
-#else
-#define WSTM_NAME_VAR(var, name) 
-#endif
+      void WSTM_LIBAPI NameVar (void* core_p, const char* name);
       ///@}
 
       /**
-       * Clears any profiling data that has accumulated.
+       * Clears any profiling data that has accumulated. This is a no-op if conflict profiling was not enabled
+       * during the building of the wstm library.
        */
-      void ClearProfileData ();
+      void WSTM_LIBAPI ClearProfileData ();
 
-      /**
-       * Routines that are only meant to be used when testing the profiling system.
-       */
-      namespace Testing
+      namespace Internal
       {
+         
+         class WOnTransactionEnd
+         {
+         public:
+#ifdef WSTM_CONFLICT_PROFILING
+            explicit WOnTransactionEnd (unsigned int* inChildTransaction);
+            
+            WOnTransactionEnd (WOnTransactionEnd&& e);
+            WOnTransactionEnd& operator= (WOnTransactionEnd&& e);
+
+            ~WOnTransactionEnd ();
+#endif
+            
+         private:
+#ifdef WSTM_CONFLICT_PROFILING
+            unsigned int* m_inChildTransaction_p;
+#endif
+         };
+
+         //don't call this directly, Atomically will take care of it.
+         WOnTransactionEnd StartTransaction (const char* filename, const int lineNumber);
       }
    }
    
@@ -378,7 +373,7 @@ namespace WSTM
             std::shared_ptr<WValueBase> old_p = m_value_p;
 #ifdef _DEBUG
             const auto oldPtr_p = static_cast<const WValue<Type_t>*>(old_p.get ());
-            (void) oldPtr_p;
+            Internal::MaybeUnused (oldPtr_p);
 #endif
             m_value_p = std::static_pointer_cast<WValue<Type_t> >(val_p);
             return old_p;
@@ -920,6 +915,41 @@ namespace WSTM
       {}
    };
 
+   namespace Internal
+   {
+      template <typename Op_t, typename ... Options_t>
+      auto AtomicallyImpl (const Op_t& op, const Options_t&... options) -> 
+         typename std::enable_if<std::is_same<void, decltype (op (std::declval<WAtomic&>()))>::value, void>::type
+      {
+         auto voidOp = Internal::MakeVoidOp<WAtomic> (op);
+         WAtomic::AtomicallyImpl(voidOp, findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
+      }
+                   
+      template <typename Op_t, typename ... Options_t>
+      auto AtomicallyImpl (const Op_t& op, const Options_t&... options) -> 
+         typename std::enable_if<!std::is_same<void, decltype (op (std::declval<WAtomic&>()))>::value, decltype (op (std::declval<WAtomic&>()))>::type
+      {
+         auto valOp = Internal::MakeValOp<WAtomic> (op);
+         WAtomic::AtomicallyImpl(valOp, findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
+         return valOp.GetResult();
+      }
+
+   }
+
+#ifdef WSTM_CONFLICT_PROFILING
+   //Don't call this directly, it is called by Atomically when in conflict profiling mode.
+   //NOTE: This function must be in the same namespace scope as Atomically else library users will
+   //have to change their code when using conflict profiling since WSTM::Atomically will expand to
+   //something with the wrong namespace on it.
+   template <typename Op_t, typename ... Options_t>
+   auto AtomicallyWithProfiling (const char* filename, const int lineNumber, const Op_t& op, const Options_t&... options)
+      -> decltype (Internal::AtomicallyImpl (op, options...))
+   {
+      auto onEnd = ConflictProfiling::Internal::StartTransaction (filename, lineNumber);
+      return Internal::AtomicallyImpl (op, options...);
+   }
+#endif //WSTM_CONFLICT_PROFILING
+
    //@{
    /**
     * Runs the given operation in an atomic fashion. This means that when the operation runs any
@@ -942,23 +972,22 @@ namespace WSTM
     *
     * @return The result of op.
    */
+#ifdef WSTM_CONFLICT_PROFILING
+
+//we have to use a macro here in order to capture file and line number for profiling
+#define Atomically(op, ...) AtomicallyWithProfiling (__FILE__, __LINE__, op, __VA_ARGS__)
+
+#else //WSTM_CONFLICT_PROFILING
+
+   //don't use a macro in this case so that we won't see Internal::AtomicallyImpl in compiler errors
    template <typename Op_t, typename ... Options_t>
-   auto Atomically (const Op_t& op, const Options_t&... options) -> 
-      typename std::enable_if<std::is_same<void, decltype (op (std::declval<WAtomic&>()))>::value, void>::type
+   auto Atomically (const Op_t& op, const Options_t&... options) -> decltype (Internal::AtomicallyImpl (op, options...))
    {
-      auto voidOp = Internal::MakeVoidOp<WAtomic> (op);
-      WAtomic::AtomicallyImpl(voidOp, findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
+      return Internal::AtomicallyImpl (op, options...);
    }
-                   
-   template <typename Op_t, typename ... Options_t>
-   auto Atomically (const Op_t& op, const Options_t&... options) -> 
-      typename std::enable_if<!std::is_same<void, decltype (op (std::declval<WAtomic&>()))>::value, decltype (op (std::declval<WAtomic&>()))>::type
-   {
-      auto valOp = Internal::MakeValOp<WAtomic> (op);
-      WAtomic::AtomicallyImpl(valOp, findArg<WMaxConflicts>(options...), findArg<WMaxRetries>(options...), findArg<WMaxRetryWait>(options...));
-      return valOp.GetResult();
-   }   
-   //@}
+   
+#endif
+//@}
 
    /**
     * Creates a function object that runs the given function in a transaction with the given

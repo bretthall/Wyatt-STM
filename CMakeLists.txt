@@ -81,6 +81,11 @@ if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
   add_definitions(-DBOOST_TEST_DYN_LINK)
 endif()
 
+if(WSTM_CONFLICT_PROFILING)
+  message (STATUS "Building with conflict profiling turned on!!!!")
+  add_definitions(-DWSTM_CONFLICT_PROFILING)  
+endif()
+
 include_directories(wstm SYSTEM ${Boost_INCLUDE_DIRS})
 link_directories(${Boost_LIBRARY_DIRS})
 

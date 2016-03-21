@@ -29,6 +29,8 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "stm.h"
+#include "conflict_profiling_internal.h"
+#include "maybe_unused.h"
 
 #include <boost/format.hpp>
 using boost::format;
@@ -249,7 +251,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
          const WTimeArg m_timeout;
       };   
    }
-   
+
    WCantContinueException::WCantContinueException(const std::string& msg):
       WException(msg)
    {}
@@ -840,8 +842,154 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
          return m_marker;
       }
 #endif //_DEBUG
+
+   }
+
+#ifdef WSTM_CONFLICT_PROFILING
+   
+   namespace
+   {
+      namespace StmConflictProfiling
+      {
+         ConflictProfilingInternal::WMainData s_cpMainData;
+         
+         //boost::thread_specific_ptr can only handle types that have default ctors so we need to
+         //wrap ConflictProfilingInternal::WThreadData in a struct with a default constructor that
+         //initilizes it with s_cpMainData.
+         struct WConflictProfilingThreadDataWrap
+         {
+            WConflictProfilingThreadDataWrap ();
+            
+            ConflictProfilingInternal::WThreadData m_data;
+         };
+         
+         WConflictProfilingThreadDataWrap::WConflictProfilingThreadDataWrap ():
+            m_data (s_cpMainData)
+         {}
+         
+         THREAD_LOCAL (WConflictProfilingThreadDataWrap, s_cpThreadData_p);
+         
+         void StartTransactionAttempt ()
+         {
+            s_cpThreadData_p->m_data.StartTransactionAttempt ();
+         }
+         
+         void Committed (Internal::WTransactionData& data)
+         {
+            s_cpThreadData_p->m_data.Commit (std::chrono::high_resolution_clock::now (), data.GetSet ());
+         }
+         
+         void GotConflict (Internal::WTransactionData& data)
+         {
+            s_cpThreadData_p->m_data.Conflict (std::chrono::high_resolution_clock::now (), data.GetGot ());
+         }
+      }      
    }
    
+#else //!WSTM_CONFLICT_PROFILING
+
+   namespace
+   {
+      namespace StmConflictProfiling
+      {         
+         void StartTransactionAttempt ()
+         {}
+         
+         void Committed (Internal::WTransactionData&)
+         {}
+         
+         void GotConflict (Internal::WTransactionData&)
+         {}
+      }      
+   }
+   
+#endif //else WSTM_CONFLICT_PROFILING
+
+#ifdef WSTM_CONFLICT_PROFILING
+   
+   namespace ConflictProfiling
+   {
+      void NameThread (const char* name)
+      {
+         StmConflictProfiling::s_cpThreadData_p->m_data.NameThread (name);
+      }
+      
+      void NameTransaction (const char* name)
+      {
+         StmConflictProfiling::s_cpThreadData_p->m_data.NameTransaction (name);
+      }
+      
+      void NameVar (void* core_p, const char* name)
+      {
+         StmConflictProfiling::s_cpThreadData_p->m_data.NameVar (core_p, name);
+      }
+      
+      void ClearProfileData ()
+      {
+         StmConflictProfiling::s_cpMainData.Clear ();
+      }
+
+      namespace Internal
+      {
+         
+         WOnTransactionEnd::WOnTransactionEnd (unsigned int* inChildTransaction_p):
+            m_inChildTransaction_p (inChildTransaction_p)
+         {}
+   
+         WOnTransactionEnd::WOnTransactionEnd (WOnTransactionEnd&& e):
+            m_inChildTransaction_p (e.m_inChildTransaction_p)
+         {
+            e.m_inChildTransaction_p = nullptr;
+         }
+   
+         WOnTransactionEnd& WOnTransactionEnd::operator= (WOnTransactionEnd&& e)
+         {
+            m_inChildTransaction_p = e.m_inChildTransaction_p;
+            e.m_inChildTransaction_p = nullptr;
+            return *this;
+         }
+
+         WOnTransactionEnd::~WOnTransactionEnd ()
+         {
+            if (m_inChildTransaction_p)
+            {
+               --(*m_inChildTransaction_p);
+               m_inChildTransaction_p = nullptr;
+            }
+         }
+
+         WOnTransactionEnd StartTransaction (const char* filename, const int lineNumber)
+         {
+            return StmConflictProfiling::s_cpThreadData_p->m_data.StartTransaction (filename, lineNumber);
+         }
+      }
+   }
+#else //!WSTM_CONFLICT_PROFILING
+
+   namespace ConflictProfiling
+   {
+      void NameThread (const char*)
+      {}
+      
+      void NameTransaction (const char*)
+      {}
+      
+      void NameVar (void*, const char*)
+      {}
+      
+      void ClearProfileData ()
+      {}
+
+      namespace Internal
+      {
+         WOnTransactionEnd StartTransaction (const char*, const int)
+         {
+            return WOnTransactionEnd ();
+         }
+      }
+   }
+   
+#endif //else WSTM_CONFLICT_PROFILING
 
    namespace 
    {      
@@ -1234,7 +1382,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
             }
          };
          WClearFlag clearFlag;
-         (void)clearFlag; //avoid a compiler warning
+         Internal::MaybeUnused (clearFlag); //avoid a compiler warning
 #endif //_DEBUG
          
          std::list<std::shared_ptr<Internal::WValueBase>> dead;
@@ -1245,6 +1393,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
             if(!DoValidation())
             {
                m_data_p->GetUpgradeLock ().UnlockAll ();
+               StmConflictProfiling::GotConflict (*m_data_p);
                return false;
             }
             
@@ -1258,6 +1407,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
                   dead.push_back (val.first->Commit (val.second));
                }
                s_commitSignal.notify_all();
+               StmConflictProfiling::Committed (*m_data_p);
             }
 
             m_data_p->GetUpgradeLock ().UnlockAll ();
@@ -1270,9 +1420,11 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
                if(!DoValidation())
                {
                   m_data_p->GetUpgradeLock ().UnlockAll ();
+                  StmConflictProfiling::GotConflict (*m_data_p);
                   return false;
                }
                m_data_p->GetUpgradeLock ().UnlockAll ();
+               StmConflictProfiling::Committed (*m_data_p);
             }
             else
             {
@@ -1280,9 +1432,11 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
                if(!DoValidation())
                {
                   m_data_p->GetReadLock ().UnlockAll ();
+                  StmConflictProfiling::GotConflict (*m_data_p);
                   return false;
                }
                m_data_p->GetReadLock ().UnlockAll ();
+               StmConflictProfiling::Committed (*m_data_p);
             }
             IncrementNumReadCommits ();
          }
@@ -1467,7 +1621,6 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
          s_lastTransConflicts = m_badCommits;
       }
 #endif //TRACK_LAST_TRANS_CONFLICTS
-
    }
 
    void WAtomic::AtomicallyImpl(Internal::WAtomicOp& op,
@@ -1480,7 +1633,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
       //while the current transaction is committing
       assert(!s_committing);
 #endif //_DEBUG
-
+      
       WAtomic at;
       assert (!at.m_committed);
       struct WRunOnFailHandlers
@@ -1524,7 +1677,7 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
       unsigned int badCommits = 0;
 #ifdef TRACK_LAST_TRANS_CONFLICTS
       const size_t numConflictsLastTime = s_lastTransConflicts;
-      (void)numConflictsLastTime;
+      Internal::MaybeUnused (numConflictsLastTime);
       WSetLastTransConflicts setLastTransConflicts (badCommits);
 #endif //TRACK_LAST_TRANS_CONFLICTS
       unsigned int retries = 0;
@@ -1541,7 +1694,9 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
                at.CommitLock();
             }
          }
-         
+
+         StmConflictProfiling::StartTransactionAttempt ();
+
          try
          {
             op.Run (at);

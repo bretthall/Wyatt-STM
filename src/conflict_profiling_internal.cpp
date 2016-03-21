@@ -29,6 +29,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "conflict_profiling_internal.h"
+#include "maybe_unused.h"
 
 #include <boost/format.hpp>
 #include <boost/range/algorithm/transform.hpp>
@@ -49,9 +50,6 @@ namespace WSTM { namespace ConflictProfilingInternal
       };
       static_assert (sizeof(WFrameHeader) == 4 + sizeof(char*), "Bad WFrameHeader size");
       
-      struct WThreadName : WFrameHeader
-      {};
-
       struct WVarName : WFrameHeader
       {
          void* m_var_p;
@@ -81,7 +79,7 @@ namespace WSTM { namespace ConflictProfilingInternal
       };
       static_assert (sizeof(WNameData) == sizeof(WFrameHeader) + sizeof(uint32_t), "Bad WNameData size");
 
-      size_t FrameSize (const WFrameHeader* header_p)
+      ptrdiff_t FrameSize (const WFrameHeader* header_p)
       {
          switch(header_p->m_type)
          {
@@ -112,7 +110,92 @@ namespace WSTM { namespace ConflictProfilingInternal
 
    WPage::WPage ():
       m_used (0)
-   {}
+   {
+#ifdef WSTM_CONFLICT_PROFILING_INTEGRITY_CHECKING
+      m_data.fill (0);
+#endif
+   }
+
+   const uint8_t* WPage::GetData () const
+   {
+      return m_data.data () + pagePadding;
+   }
+
+   size_t WPage::GetUsed () const
+   {
+      return m_used;
+   }
+   
+   size_t WPage::GetLeft () const
+   {
+      return pageSize - m_used;
+   }
+   
+   uint8_t* WPage::Reserve (const size_t numBytes)
+   {
+      if (numBytes <= GetLeft ())
+      {
+         auto pos_p = m_data.data () + pagePadding + m_used;
+         m_used += numBytes;
+         return pos_p;
+      }
+      else
+      {
+         return nullptr;
+      }
+   }
+         
+   WPage* WPage::NewPage ()
+   {
+      if (!m_next_p)
+      {
+         m_next_p = std::make_unique<WPage>();
+      }
+      CheckIntegrity ();
+      return m_next_p.get ();
+   }
+   
+   std::unique_ptr<WPage> WPage::ReleaseNext ()
+   {
+      return std::move (m_next_p);
+   }
+
+   void WPage::Capture (std::unique_ptr<WPage>&& next_p)
+   {
+      assert (!m_next_p);
+      if (next_p && (next_p->m_used != 0))
+      {
+         //don't bother saving the pages if they're empty
+         m_next_p = std::move (next_p);
+      }
+   }
+   
+   void WPage::CheckIntegrity () const
+   {
+#ifdef WSTM_CONFLICT_PROFILING_INTEGRITY_CHECKING
+      for (auto i = 0; i < pagePadding; ++i)
+      {
+         assert (m_data[i] == 0);
+      }
+
+      for (auto i = (m_used + pagePadding); i < (pageSize + 2*pagePadding); ++i)
+      {
+         assert (m_data[i] == 0);
+      }
+#endif
+   }
+
+   void WPage::Clear ()
+   {
+#ifdef WSTM_CONFLICT_PROFILING_INTEGRITY_CHECKING
+      m_data.fill (0);
+#endif
+      m_used = 0;
+      if (m_next_p)
+      {
+         m_next_p->Clear ();
+      }
+   }
 
    WMainData::WMainData ():
       m_lastPage_p (nullptr),
@@ -132,32 +215,57 @@ namespace WSTM { namespace ConflictProfilingInternal
 
       const auto filename = boost::str (boost::format ("wstm_%1%.profile") % std::chrono::system_clock::to_time_t (std::chrono::system_clock::now ()));
       auto out = std::ofstream (filename, std::ios::out | std::ios::binary);
-         
+
+      auto skipBytes = ptrdiff_t (0);
       std::unique_ptr<WPage> cur_p = std::move (m_firstPage_p);
       while (cur_p)
       {
-         auto data_p = cur_p->m_data.data ();
-         out.write (reinterpret_cast<const char*>(data_p), cur_p->m_used);
+         auto data_p = cur_p->GetData ();
+         out.write (reinterpret_cast<const char*>(data_p), cur_p->GetUsed ());
 
-         const auto dataEnd_p = data_p + cur_p->m_used;
-         while (data_p < dataEnd_p)
+         const auto dataEnd_p = data_p + cur_p->GetUsed ();
+         auto bytesLeft = (dataEnd_p - data_p);
+         if (bytesLeft >= skipBytes)
          {
-            auto frame_p = reinterpret_cast<const Frames::WFrameHeader*>(data_p);
-            names.insert (frame_p->m_name);
-            data_p += FrameSize (frame_p);
+            data_p += skipBytes;
+            bytesLeft -= skipBytes;
+            while (data_p < dataEnd_p)
+            {
+               auto frame_p = reinterpret_cast<const Frames::WFrameHeader*>(data_p);
+               names.insert (frame_p->m_name);
+               skipBytes = FrameSize (frame_p);
+               if (bytesLeft >= skipBytes)
+               {
+                  data_p += skipBytes;
+                  bytesLeft -= skipBytes;
+                  skipBytes = 0;
+               }
+               else
+               {
+                  skipBytes -= bytesLeft;
+                  data_p = dataEnd_p;
+               }
+            }
          }
+         else
+         {
+            skipBytes -= bytesLeft;
+         }            
 
-         cur_p = std::move (cur_p->m_next_p);
+         cur_p = cur_p->ReleaseNext ();
       }
 
       auto nameData = Frames::WNameData ();
       nameData.m_type = Frames::FrameType::nameData;
       for (const auto name_p: names)
       {
-         nameData.m_name = name_p;
-         nameData.m_numChars = std::max (std::numeric_limits<uint32_t>::max (), strlen (name_p));
-         out.write (reinterpret_cast<const char*>(&nameData), sizeof(Frames::WNameData));
-         out.write (name_p, nameData.m_numChars);
+         if (name_p != nullptr)
+         {
+            nameData.m_name = name_p;
+            nameData.m_numChars = strlen (name_p);
+            out.write (reinterpret_cast<const char*>(&nameData), sizeof(Frames::WNameData));
+            out.write (name_p, nameData.m_numChars);
+         }
       }
    }
 
@@ -167,24 +275,30 @@ namespace WSTM { namespace ConflictProfilingInternal
       ++m_numThreads;
    }
    
-   void WMainData::ThreadDone (std::unique_ptr<WPage>&& data_p)
+   void WMainData::ThreadDone (std::unique_ptr<WPage>&& first_p, WPage* last_p)
    {
       auto lock = std::unique_lock<std::mutex>(m_mutex);
-         
-      if (m_lastPage_p)
+
+      if (first_p)
       {
-         m_lastPage_p->m_next_p = std::move (data_p);
+         assert (last_p != nullptr);
+         
+         if (m_lastPage_p)
+         {
+            m_lastPage_p->Capture (std::move (first_p));
+         }
+         else
+         {
+            assert (!m_firstPage_p);
+            m_firstPage_p = std::move (first_p);
+         }
+         m_lastPage_p = last_p;
       }
       else
       {
-         m_firstPage_p = std::move (data_p);
-         m_lastPage_p = m_firstPage_p.get ();
+         assert (last_p == nullptr);
       }
-      while (m_lastPage_p->m_next_p)
-      {
-         m_lastPage_p = m_lastPage_p->m_next_p.get ();
-      }
-      
+
       --m_numThreads;
       m_numThreadsCond.notify_one ();
    }
@@ -199,12 +313,8 @@ namespace WSTM { namespace ConflictProfilingInternal
 
    size_t WMainData::GetClearIndex () const
    {
+      //don't need mutex lock here, m_clearIndex is atomic
       return m_clearIndex;
-   }
-
-   const WPage* WMainData::GetFirstPage () const
-   {
-      return m_firstPage_p.get ();
    }
    
    WThreadData::WThreadData (WMainData& mainData):
@@ -214,14 +324,15 @@ namespace WSTM { namespace ConflictProfilingInternal
       m_threadName (nullptr),
       m_curTransactionFile (nullptr),
       m_curTransactionLine (-1),
-      m_curTransactionName (nullptr)
+      m_curTransactionName (nullptr),
+      m_inChildTransaction (0)
    {
       m_mainData.NewThread ();
    }
 
    WThreadData::~WThreadData ()
    {
-      m_mainData.ThreadDone (std::move (m_firstPage_p));
+      m_mainData.ThreadDone (std::move (m_firstPage_p), m_curPage_p);
    }
    
    void WThreadData::NameThread (const char* name)
@@ -229,38 +340,96 @@ namespace WSTM { namespace ConflictProfilingInternal
       assert (m_threadName == nullptr);
       m_threadName = name;
    }
-      
-   void WThreadData::StartTransaction (const char* file, const int line)
+
+   ConflictProfiling::Internal::WOnTransactionEnd WThreadData::StartTransaction (const char* file, const int line)
    {
       //WHat about sub-transactions??????????????????????????????????????????????????????????????????????????
       // -> array of transaction trackers, output "sub-transaction" frames for sub-transactions,
       //sub-transaction frames will need both get and set vars since we don't know if the top-level
       //will have a conflict or not
       // -> probably be better to only report data for top-level transactions
-      m_curTransactionFile = file;
-      m_curTransactionLine = line;
-      m_curTransactionName = nullptr;
-      m_curTransactionStart = std::chrono::high_resolution_clock::now ();
+
+      //=> Currently only dealing with top-level transactions, we ignore child transactions, their
+      //read and write sets will be recorded when the top-level transaction commits or aborts
+#ifdef WSTM_CONFLICT_PROFILING
+      if (m_inChildTransaction == 0)
+      {
+         m_curTransactionFile = file;
+         m_curTransactionLine = line;
+         m_curTransactionName = nullptr;
+      }
+      ++m_inChildTransaction;
+      return ConflictProfiling::Internal::WOnTransactionEnd (&m_inChildTransaction);
+#else
+      Internal::MaybeUnused (file, line);
+      return ConflictProfiling::Internal::WOnTransactionEnd ();
+#endif
+   }
+
+   void WThreadData::StartTransactionAttempt ()
+   {
+      if (NotInChildTransaction ())
+      {
+         m_curTransactionStart = std::chrono::high_resolution_clock::now ();
+      }
    }
 
    void WThreadData::TransactionEnd (const Frames::FrameType type, const std::chrono::high_resolution_clock::time_point end, const Internal::VarMap& vars)
    {
-      auto dest_p = GetNextDest (sizeof(Frames::WTransaction) + sizeof(void*)*vars.size ());
-      auto frame_p = reinterpret_cast<Frames::WTransaction*>(dest_p);
-      frame_p->m_type = type;
-      frame_p->m_name = m_curTransactionName;
-      frame_p->m_threadName = m_threadName;
-      frame_p->m_start = m_curTransactionStart;
-      frame_p->m_end = end;
-      frame_p->m_file = m_curTransactionFile;
-      frame_p->m_line = static_cast<uint16_t>(std::max (static_cast<int>(std::numeric_limits<uint16_t>::max ()), m_curTransactionLine));
-      frame_p->m_numVars = static_cast<uint16_t>(vars.size ());
-      auto vars_p = reinterpret_cast<void**>(reinterpret_cast<uint8_t*>(frame_p) + sizeof(Frames::WTransaction));
-      boost::transform (vars, vars_p,
-                        [](const auto& val) -> void*
-                        {
-                           return std::get<0>(val).get ();
-                        });
+      Internal::MaybeUnused (type, end, vars);
+      
+      if (NotInChildTransaction ())
+      {
+         const auto oldPage_p = m_curPage_p;
+         if (oldPage_p)
+         {
+            oldPage_p->CheckIntegrity ();
+         }
+
+         auto dest_p = GetNextDest (sizeof(Frames::WTransaction));
+         auto frame_p = reinterpret_cast<Frames::WTransaction*>(dest_p);
+         frame_p->m_type = type;
+         frame_p->m_name = m_curTransactionName;
+         frame_p->m_threadName = m_threadName;
+         frame_p->m_start = m_curTransactionStart;
+         frame_p->m_end = end;
+         frame_p->m_file = m_curTransactionFile;
+         frame_p->m_line = static_cast<uint16_t>(std::max (static_cast<int>(std::numeric_limits<uint16_t>::max ()), m_curTransactionLine));
+         frame_p->m_numVars = static_cast<uint16_t>(vars.size ());
+         m_curPage_p->CheckIntegrity ();
+         
+         //we might not be able to fit all the vars on one page, split them up if need be
+         auto varMemLeft = sizeof(void*)*vars.size ();
+         auto varsIt = std::begin (vars);
+         while (varMemLeft > 0)
+         {
+            assert (varsIt != std::end (vars));
+            
+            auto memToUse = std::min (varMemLeft, m_curPage_p->GetLeft ());
+            auto numThatFit = memToUse/sizeof(void*);
+            if (numThatFit == 0)
+            {
+               m_curPage_p = m_curPage_p->NewPage ();
+               memToUse = std::min (varMemLeft, m_curPage_p->GetLeft ());
+               numThatFit = memToUse/sizeof(void*);
+            }
+            auto vars_p = reinterpret_cast<void**>(m_curPage_p->Reserve (memToUse));
+            auto varsEnd = varsIt;
+            std::advance (varsEnd, numThatFit);
+            std::transform (varsIt, varsEnd,
+                            vars_p,
+                            [](const auto& val) -> void*
+                            {
+                               return std::get<0>(val).get ();
+                            });
+            m_curPage_p->CheckIntegrity ();
+            varsIt = varsEnd;
+            varMemLeft -= memToUse;
+         }
+
+         m_curPage_p->CheckIntegrity ();
+      }
+      //NOTE: decrementing m_inChildTransaction is handled by the WTransactionEnd returned by StartTransaction
    }      
 
    void WThreadData::Commit (const std::chrono::high_resolution_clock::time_point end, const Internal::VarMap& setVars)
@@ -272,10 +441,14 @@ namespace WSTM { namespace ConflictProfilingInternal
    {
       TransactionEnd (Frames::FrameType::conflict, end, getVars);
    }
-
+   
    void WThreadData::NameTransaction (const char* name)
    {
-      m_curTransactionName = name;
+      //only the top-level transaction can set the name
+      if (NotInChildTransaction ())
+      {
+         m_curTransactionName = name;
+      }
    }
    
    void WThreadData::NameVar (void* var_p, const char* name)
@@ -285,30 +458,21 @@ namespace WSTM { namespace ConflictProfilingInternal
       frame_p->m_type = Frames::FrameType::varName;
       frame_p->m_var_p = var_p;
       frame_p->m_name = name;
+      m_curPage_p->CheckIntegrity ();
    }
 
    uint8_t* WThreadData::GetNextDest (const size_t size)
    {
       if (m_clearIndex != m_mainData.GetClearIndex ())
       {
-         m_curPage_p = m_firstPage_p.get ();
-         auto cur_p = m_curPage_p;
-         while (cur_p)
-         {
-            cur_p->m_used = 0;
-            cur_p = cur_p->m_next_p.get ();
-         }
+         m_firstPage_p->Clear ();
       }
-      
+
       if (m_curPage_p)
       {
-         if ((pageSize - m_curPage_p->m_used) < size)
+         if (m_curPage_p->GetLeft () < size)
          {
-            if (!m_curPage_p->m_next_p)
-            {
-               m_curPage_p->m_next_p = std::make_unique<WPage>();
-            }
-            m_curPage_p = m_curPage_p->m_next_p.get ();
+            m_curPage_p = m_curPage_p->NewPage ();
          }
       }
       else
@@ -317,10 +481,130 @@ namespace WSTM { namespace ConflictProfilingInternal
          m_curPage_p = m_firstPage_p.get ();
       }
 
-      const auto dest_p = m_curPage_p->m_data.data () + m_curPage_p->m_used;
-      m_curPage_p->m_used += size;
-      return dest_p;
+      return m_curPage_p->Reserve (size);
    }
-   
+
+   bool WThreadData::NotInChildTransaction () const
+   {
+      return m_inChildTransaction == 1;
+   }
+
+   namespace
+   {
+      WVarName ConvertVarName (const Frames::WFrameHeader* header_p)
+      {
+         assert (header_p->m_type == Frames::FrameType::varName);
+         auto frame_p = reinterpret_cast<const Frames::WVarName*>(header_p);
+         auto data = WVarName ();
+         data.m_var_p = frame_p->m_var_p;
+         data.m_name = frame_p->m_name;
+         return data;
+      }
+
+      WConflict ConvertConflict (const Frames::WFrameHeader* header_p)
+      {
+         assert (header_p->m_type == Frames::FrameType::conflict);
+         auto frame_p = reinterpret_cast<const Frames::WTransaction*>(header_p);
+         auto data = WConflict ();
+         data.m_transactionName = frame_p->m_name;
+         data.m_threadName = frame_p->m_threadName;
+         data.m_start = frame_p->m_start;
+         data.m_end = frame_p->m_end;
+         data.m_file = frame_p->m_file;
+         data.m_line = frame_p->m_line;
+         auto var_p = reinterpret_cast<const void* const*>(reinterpret_cast<const uint8_t*>(frame_p) + sizeof(Frames::WTransaction));
+         data.m_got = std::vector<const void*>(var_p, var_p + frame_p->m_numVars);
+         return data;
+      }
+
+      WCommit ConvertCommit (const Frames::WFrameHeader* header_p)
+      {
+         assert (header_p->m_type == Frames::FrameType::commit);
+         auto frame_p = reinterpret_cast<const Frames::WTransaction*>(header_p);
+         auto data = WCommit ();
+         data.m_transactionName = frame_p->m_name;
+         data.m_threadName = frame_p->m_threadName;
+         data.m_start = frame_p->m_start;
+         data.m_end = frame_p->m_end;
+         data.m_file = frame_p->m_file;
+         data.m_line = frame_p->m_line;
+         auto var_p = reinterpret_cast<const void* const*>(reinterpret_cast<const uint8_t*>(frame_p) + sizeof(Frames::WTransaction));
+         data.m_set = std::vector<const void*>(var_p, var_p + frame_p->m_numVars);
+         return data;
+      }
+
+      WName ConvertNameData (const Frames::WFrameHeader* header_p)
+      {
+         assert (header_p->m_type == Frames::FrameType::nameData);
+         auto frame_p = reinterpret_cast<const Frames::WNameData*>(header_p);
+         auto data = WName ();
+         data.m_key = frame_p->m_name;
+         auto chars_p = reinterpret_cast<const char*>(frame_p) + sizeof(Frames::WNameData);
+         data.m_name = std::string(chars_p, chars_p + frame_p->m_numChars);
+         return data;
+      }
+   }
+
+   std::tuple<WData, const uint8_t*> ConvertData (const uint8_t* start_p, const uint8_t* end_p)
+   { 
+     auto header_p = reinterpret_cast<const Frames::WFrameHeader*>(start_p);
+
+     //first we need to make sure that we have enough data to determine the frame size
+     auto minSize = ptrdiff_t (0);
+     switch(header_p->m_type)
+     {
+     case Frames::FrameType::varName:
+        minSize = sizeof(Frames::WVarName);
+        break;
+        
+     case Frames::FrameType::commit:
+     case Frames::FrameType::conflict:
+        minSize = sizeof(Frames::WTransaction);
+        break;
+        
+     case Frames::FrameType::nameData:
+        minSize = sizeof(Frames::WNameData);
+        break;
+
+     default:
+        //if we get here it means we added a frame type and didn't include it in this function        
+        assert (false);
+        return std::make_tuple (WIncomplete {0}, start_p);
+     };
+     const auto maxSize = end_p - start_p;
+     if (maxSize < minSize)
+     {
+        return std::make_tuple (WIncomplete {minSize}, start_p);
+     }
+
+     //We have enough data to determine the full frame size
+     auto size = Frames::FrameSize (header_p);
+     if (maxSize < size)
+     {
+        return std::make_tuple (WIncomplete {size}, start_p);
+     }
+     
+     //we've got a full frame
+     switch(header_p->m_type)
+     {
+     case Frames::FrameType::varName:
+        return std::make_tuple (ConvertVarName (header_p), start_p + size);
+        
+     case Frames::FrameType::commit:
+        return std::make_tuple (ConvertCommit (header_p), start_p + size);
+        
+     case Frames::FrameType::conflict:
+        return std::make_tuple (ConvertConflict (header_p), start_p + size);
+        
+     case Frames::FrameType::nameData:
+        return std::make_tuple (ConvertNameData (header_p), start_p + size);
+
+     default:
+        //if we get here it means we added a frame type and didn't include it in this function        
+        assert (false);
+        return std::make_tuple (WIncomplete {0}, start_p);
+     };
+   }
+
 }}
 
