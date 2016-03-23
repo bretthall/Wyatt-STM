@@ -228,7 +228,7 @@ int main (int argc, const char** argv)
       }
    }
    
-   done_v.Set (true);
+   SetVar (done_v, true);
    std::cout << "Waiting for thread exits" << std::endl;
    for (auto& t: threads)
    {

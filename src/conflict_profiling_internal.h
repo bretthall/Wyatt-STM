@@ -153,49 +153,6 @@ namespace WSTM
          unsigned int m_inChildTransaction;
       };
       
-      struct WVarName
-      {
-         const void* m_var_p;
-         const char* m_name;
-      };
-      
-      struct WConflict
-      {
-         const void* m_transactionName;
-         std::thread::id m_threadId;
-         const void* m_threadName;
-         std::chrono::high_resolution_clock::time_point m_start;
-         std::chrono::high_resolution_clock::time_point m_end;
-         const void* m_file;
-         uint16_t m_line;
-         std::vector<const void*> m_got;
-      };
-      
-      struct WCommit
-      {
-         const void* m_transactionName;
-         const void* m_threadName;
-         std::chrono::high_resolution_clock::time_point m_start;
-         std::chrono::high_resolution_clock::time_point m_end;
-         const void* m_file;
-         uint16_t m_line;
-         std::vector<const void*> m_set;
-      };
-
-      struct WName
-      {
-         const void* m_key;
-         std::string m_name;
-      };
-
-      struct WIncomplete
-      {
-         ptrdiff_t m_size;
-      };
- 
-      using WData = boost::variant<WVarName, WConflict, WCommit, WName, WIncomplete>;
-
-      std::tuple<WData, const uint8_t*> ConvertData (const uint8_t* start_p, const uint8_t* end_p);
    }
 }
 

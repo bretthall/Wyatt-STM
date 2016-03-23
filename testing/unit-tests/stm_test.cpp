@@ -38,6 +38,7 @@ using boost::format;
 #include <boost/thread/barrier.hpp>
 using boost::barrier;
 #include <boost/function.hpp>
+#include <boost/range/algorithm/find.hpp>
 
 #include <cstdlib>
 #include <thread>
@@ -143,14 +144,9 @@ BOOST_AUTO_TEST_CASE (StmVarTests_DtorCalled)
    //Makes sure that destructors of objects stored in WVar's have
    //their desatructors called when the WVar is set.
    WSTM::WVar<WVarDtorTester> test (WVarDtorTester (1));
-   test.Set (WVarDtorTester (2));
-   BOOST_REQUIRE_EQUAL (size_t (3), varDtorDead.size ());
-   BOOST_CHECK_EQUAL (1, varDtorDead[0].first);
-   BOOST_CHECK_EQUAL (0, varDtorDead[0].second);
-   BOOST_CHECK_EQUAL (1, varDtorDead[1].first);
-   BOOST_CHECK_EQUAL (1, varDtorDead[1].second);
-   BOOST_CHECK_EQUAL (2, varDtorDead[2].first);
-   BOOST_CHECK_EQUAL (2, varDtorDead[2].second);
+   BOOST_CHECK_GE (varDtorIndex, 1);
+   SetVar (test, WVarDtorTester (2));
+   BOOST_CHECK (boost::find (varDtorDead, std::make_pair (1, 0)) != std::end (varDtorDead));
 }
 
 namespace
@@ -720,7 +716,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_max_conflict_lock_with_sub_trans)
                //this Set will start a sub-transaction, we had problems with sub-transactions
                //cancelling the commit lock of parent transactions that were running locked (which
                //this transaction should be at this point)
-               extraVar.Set (extraVar.Get (at) + 1);
+               SetVar (extraVar, extraVar.Get (at) + 1);
             }
             //wait here until the conflicter thread has committed its change to conflictVar so that
             //we will get a conflict in our transaction
@@ -1234,7 +1230,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_transaction_retry)
 	WSTM::WVar<bool> var(false);
    std::thread thr(boost::bind(&WRetryThread::Run, boost::ref(ret), boost::ref(bar), boost::ref(var)));
 	bar.wait();
-   var.Set (true);
+   SetVar (var, true);
 	bar.wait();
 	thr.join();
 	BOOST_CHECK(!ret.timedout);
@@ -1736,7 +1732,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_test_nested_validation_fail)
 	std::thread t(boost::bind(OtherThread::Run, boost::ref(v), boost::ref(b)));
 	b.wait();
 	//other thread has got var
-   v.Set (1);
+   SetVar (v, 1);
 	b.wait();
 	//other thread will now try nested transaction
 	b.wait();
@@ -1773,7 +1769,7 @@ namespace
    WAtomicallyInDtor& WAtomicallyInDtor::operator=(const WAtomicallyInDtor& other)
    {
       m_value = other.m_value;
-      m_var.Set (other.m_var.GetReadOnly ());
+      SetVar (m_var, other.m_var.GetReadOnly ());
       return *this;
    }
 
@@ -1832,7 +1828,7 @@ BOOST_AUTO_TEST_CASE (StmVarTests_AtomicallyDuringThreadExit)
          //run a transaction so that the STM system sets up its thread
          //cleanup function
          WSTM::WVar<int> v (0);
-         v.Set (1);
+         SetVar (v, 1);
 
          m_run = true;
       }
@@ -1908,14 +1904,14 @@ BOOST_AUTO_TEST_CASE (single_var_validation)
    BOOST_CHECK_EQUAL (preCounter, 1);
    BOOST_CHECK_EQUAL (postCounter, 1);
 
-   var1.Set (false);
-   var2.Set (false);
+   SetVar (var1, false);
+   SetVar (var2, false);
    
    barrier bar (2);
    std::thread conflicter ([&]()
                            {
                               bar.wait ();
-                              var1.Set (true);
+                              SetVar (var1, true);
                               bar.wait ();
                            });
    preCounter = 0;
@@ -1952,7 +1948,7 @@ namespace OnFailedUtils
    void NoFailTrans (bool& flag1, WSTM::WVar<bool>& flag2_v, WSTM::WAtomic& at)
    {
       at.OnFail ([&](){flag1 = true;});
-      at.OnFail ([&](){flag2_v.Set (true);});
+      at.OnFail ([&](){SetVar (flag2_v, true);});
    }
    
 }
@@ -1982,7 +1978,7 @@ namespace OnFailedUtils
       at.OnFail ([&]()
                  {
                     //make sure that transactions work in "on fail" handlers
-                    flag2_v.Set (true);
+                    SetVar (flag2_v, true);
                  });
       throw WAborted ();
    }
@@ -2015,7 +2011,7 @@ namespace OnFailedUtils
                           const std::shared_ptr<boost::barrier>& bar_p)
    {
       bar_p->wait ();
-      var_p->Set (35402);
+      SetVar ((*var_p), 35402);
       bar_p->wait ();
    }
 
@@ -2026,7 +2022,7 @@ namespace OnFailedUtils
                        WSTM::WAtomic& at)
    {
       at.OnFail ([&](){flag1 = true;});
-      at.OnFail ([&](){flag2_v.Set (true);});
+      at.OnFail ([&](){SetVar (flag2_v, true);});
       const int val = var_p->Get (at);
       if (val == 0)
       {
@@ -2059,7 +2055,7 @@ namespace OnFailedUtils
                            const std::shared_ptr<boost::barrier>& bar_p)
    {
       bar_p->wait ();
-      var_p->Set (35402);
+      SetVar ((*var_p), 35402);
    }
 
    void RetryTrans (bool& flag1,
@@ -2069,7 +2065,7 @@ namespace OnFailedUtils
                     WSTM::WAtomic& at)
    {
       at.OnFail ([&](){flag1 = true;});
-      at.OnFail ([&](){flag2_v.Set (true);});
+      at.OnFail ([&](){SetVar (flag2_v, true);});
       if (var_p->Get (at) == 0)
       {
          bar_p->wait ();

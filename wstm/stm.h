@@ -1260,16 +1260,16 @@ namespace WSTM
          }
       }
 
-      /**
-       * Sets the value of the variable. Creates a transaction to do this in so it will be slower
-       * than the other version of set if you are already in a transaction.
-       *
-       * @param val The value to set, this value will be copied.
-       */
-      void Set(param_type val)
-      {
-         Atomically ([&](WAtomic& at){Set (val, at);});
-      }
+      // /**
+      //  * Sets the value of the variable. Creates a transaction to do this in so it will be slower
+      //  * than the other version of set if you are already in a transaction.
+      //  *
+      //  * @param val The value to set, this value will be copied.
+      //  */
+      // void Set(param_type val)
+      // {
+      //    Atomically ([&](WAtomic& at){Set (val, at);});
+      // }
 
       /**
        * Validates just this variable, if validation fails the transaction will be restarted
@@ -1304,15 +1304,21 @@ namespace WSTM
       {
          ConflictProfiling::NameVar (m_core_p.get (), name);
       }
-      void NameForConflictProfiling (const std::string& name)
-      {
-         ConflictProfiling::NameVar (m_core_p.get (), name);
-      }
       ///@}
       
    private:
       typename std::shared_ptr<Internal::WVarCore<Type_t>> m_core_p;
    };
+
+#ifndef WSTM_CONFLICT_PROFILING
+   template <typename Type_t>
+   void SetVar (WVar<Type_t>& var, typename WVar<Type_t>::param_type value)
+   {
+      Atomically ([&](WAtomic& at){var.Set (value, at);});
+   }
+#else
+#define SetVar(var, value) ::WSTM::AtomicallyWithProfiling (__FILE__, __LINE__, [&](::WSTM::WAtomic& at){var.Set (value, at);});
+#endif
 
    /**
     * A variable that has values "local" to a given transaction, sort of like

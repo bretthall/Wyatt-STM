@@ -112,7 +112,7 @@ namespace WSTM
          auto connections = m_connections.Get (at);
          const int index = m_connectionIndex.Get (at);
          connections.push_front (WConn (index, callback));
-         m_connectionIndex.Set (index + 1);
+         SetVar (m_connectionIndex, index + 1);
          m_connections.Set (connections, at);
          return index;
       }

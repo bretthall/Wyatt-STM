@@ -29,6 +29,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "conflict_profiling_internal.h"
+#include "conflict_profiling_processing.h"
 #include "maybe_unused.h"
 
 #include <boost/format.hpp>
@@ -48,13 +49,11 @@ namespace WSTM { namespace ConflictProfilingInternal
          FrameType m_type;
          const char* m_name;
       };
-      static_assert (sizeof(WFrameHeader) == 4 + sizeof(char*), "Bad WFrameHeader size");
       
       struct WVarName : WFrameHeader
       {
          void* m_var_p;
       };
-      static_assert (sizeof(WVarName) == sizeof(WFrameHeader) + sizeof(void*), "Bad WVarName size");
 
       struct WTransaction : WFrameHeader
       {
@@ -63,23 +62,16 @@ namespace WSTM { namespace ConflictProfilingInternal
          std::chrono::high_resolution_clock::time_point m_start;
          std::chrono::high_resolution_clock::time_point m_end;
          const char* m_file;
-         uint16_t m_line;
-         uint16_t m_numVars;
+         uint32_t m_line;
+         uint32_t m_numVars;
          //will be followed by m_numVars void*'s
       };
-      static_assert (sizeof(WTransaction) ==
-                     (sizeof(WFrameHeader)
-                      + sizeof(std::thread::id)
-                      + 2*sizeof(std::chrono::high_resolution_clock::time_point)
-                      + 2*sizeof(char*)
-                      + 2*sizeof(uint16_t)), "Bad WTransaction size");
 
       struct WNameData : WFrameHeader
       {
          uint32_t m_numChars;
          //will be followed by m_numChars char's
       };
-      static_assert (sizeof(WNameData) == sizeof(WFrameHeader) + sizeof(uint32_t), "Bad WNameData size");
 
       ptrdiff_t FrameSize (const WFrameHeader* header_p)
       {
@@ -233,9 +225,16 @@ namespace WSTM { namespace ConflictProfilingInternal
             bytesLeft -= skipBytes;
             while (data_p < dataEnd_p)
             {
-               auto frame_p = reinterpret_cast<const Frames::WFrameHeader*>(data_p);
-               names.insert (frame_p->m_name);
-               skipBytes = FrameSize (frame_p);
+               auto header_p = reinterpret_cast<const Frames::WFrameHeader*>(data_p);
+               names.insert (header_p->m_name);
+               if ((header_p->m_type == Frames::FrameType::commit) || (header_p->m_type == Frames::FrameType::conflict))
+               {
+                  auto frame_p = reinterpret_cast<const Frames::WTransaction*>(data_p);
+                  names.insert (frame_p->m_threadName);
+                  names.insert (frame_p->m_file);
+               }
+               
+               skipBytes = FrameSize (header_p);
                if (bytesLeft >= skipBytes)
                {
                   data_p += skipBytes;
@@ -259,6 +258,7 @@ namespace WSTM { namespace ConflictProfilingInternal
 
       auto nameData = Frames::WNameData ();
       nameData.m_type = Frames::FrameType::nameData;
+      names.erase (nullptr);
       for (const auto name_p: names)
       {
          if (name_p != nullptr)
@@ -397,8 +397,8 @@ namespace WSTM { namespace ConflictProfilingInternal
          frame_p->m_start = m_curTransactionStart;
          frame_p->m_end = end;
          frame_p->m_file = m_curTransactionFile;
-         frame_p->m_line = static_cast<uint16_t>(std::max (static_cast<int>(std::numeric_limits<uint16_t>::max ()), m_curTransactionLine));
-         frame_p->m_numVars = static_cast<uint16_t>(vars.size ());
+         frame_p->m_line = static_cast<uint32_t>(m_curTransactionLine);
+         frame_p->m_numVars = static_cast<uint32_t>(vars.size ());
          m_curPage_p->CheckIntegrity ();
          
          //we might not be able to fit all the vars on one page, split them up if need be
@@ -491,122 +491,203 @@ namespace WSTM { namespace ConflictProfilingInternal
    {
       return m_inChildTransaction == 1;
    }
+}
 
+namespace ConflictProfiling
+{
    namespace
    {
-      WVarName ConvertVarName (const Frames::WFrameHeader* header_p)
+      WVarName ConvertVarName (const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
       {
-         assert (header_p->m_type == Frames::FrameType::varName);
-         auto frame_p = reinterpret_cast<const Frames::WVarName*>(header_p);
+         assert (header_p->m_type == ConflictProfilingInternal::Frames::FrameType::varName);
+         auto frame_p = reinterpret_cast<const ConflictProfilingInternal::Frames::WVarName*>(header_p);
          auto data = WVarName ();
          data.m_var_p = frame_p->m_var_p;
-         data.m_name = frame_p->m_name;
+         data.m_nameKey = frame_p->m_name;
          return data;
       }
 
-      WConflict ConvertConflict (const Frames::WFrameHeader* header_p)
+      WConflict ConvertConflict (const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
       {
-         assert (header_p->m_type == Frames::FrameType::conflict);
-         auto frame_p = reinterpret_cast<const Frames::WTransaction*>(header_p);
+         assert (header_p->m_type == ConflictProfilingInternal::Frames::FrameType::conflict);
+         auto frame_p = reinterpret_cast<const ConflictProfilingInternal::Frames::WTransaction*>(header_p);
          auto data = WConflict ();
-         data.m_transactionName = frame_p->m_name;
-         data.m_threadName = frame_p->m_threadName;
+         data.m_transactionNameKey = frame_p->m_name;
+         data.m_threadId = frame_p->m_threadId;
+         data.m_threadNameKey = frame_p->m_threadName;
          data.m_start = frame_p->m_start;
          data.m_end = frame_p->m_end;
-         data.m_file = frame_p->m_file;
+         data.m_fileNameKey = frame_p->m_file;
          data.m_line = frame_p->m_line;
-         auto var_p = reinterpret_cast<const void* const*>(reinterpret_cast<const uint8_t*>(frame_p) + sizeof(Frames::WTransaction));
+         auto var_p = reinterpret_cast<const void* const*>(reinterpret_cast<const uint8_t*>(frame_p) + sizeof(ConflictProfilingInternal::Frames::WTransaction));
          data.m_got = std::vector<const void*>(var_p, var_p + frame_p->m_numVars);
          return data;
       }
 
-      WCommit ConvertCommit (const Frames::WFrameHeader* header_p)
+      WCommit ConvertCommit (const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
       {
-         assert (header_p->m_type == Frames::FrameType::commit);
-         auto frame_p = reinterpret_cast<const Frames::WTransaction*>(header_p);
+         assert (header_p->m_type == ConflictProfilingInternal::Frames::FrameType::commit);
+         auto frame_p = reinterpret_cast<const ConflictProfilingInternal::Frames::WTransaction*>(header_p);
          auto data = WCommit ();
-         data.m_transactionName = frame_p->m_name;
-         data.m_threadName = frame_p->m_threadName;
+         data.m_transactionNameKey = frame_p->m_name;
+         data.m_threadId = frame_p->m_threadId;
+         data.m_threadNameKey = frame_p->m_threadName;
          data.m_start = frame_p->m_start;
          data.m_end = frame_p->m_end;
-         data.m_file = frame_p->m_file;
+         data.m_fileNameKey = frame_p->m_file;
          data.m_line = frame_p->m_line;
-         auto var_p = reinterpret_cast<const void* const*>(reinterpret_cast<const uint8_t*>(frame_p) + sizeof(Frames::WTransaction));
+         auto var_p = reinterpret_cast<const void* const*>(reinterpret_cast<const uint8_t*>(frame_p) + sizeof(ConflictProfilingInternal::Frames::WTransaction));
          data.m_set = std::vector<const void*>(var_p, var_p + frame_p->m_numVars);
          return data;
       }
 
-      WName ConvertNameData (const Frames::WFrameHeader* header_p)
+      WName ConvertNameData (const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
       {
-         assert (header_p->m_type == Frames::FrameType::nameData);
-         auto frame_p = reinterpret_cast<const Frames::WNameData*>(header_p);
+         assert (header_p->m_type == ConflictProfilingInternal::Frames::FrameType::nameData);
+         auto frame_p = reinterpret_cast<const ConflictProfilingInternal::Frames::WNameData*>(header_p);
          auto data = WName ();
          data.m_key = frame_p->m_name;
-         auto chars_p = reinterpret_cast<const char*>(frame_p) + sizeof(Frames::WNameData);
+         auto chars_p = reinterpret_cast<const char*>(frame_p) + sizeof(ConflictProfilingInternal::Frames::WNameData);
          data.m_name = std::string(chars_p, chars_p + frame_p->m_numChars);
          return data;
       }
+
+      constexpr auto defaultBufferSize = size_t (1024);
    }
 
-   std::tuple<WData, const uint8_t*> ConvertData (const uint8_t* start_p, const uint8_t* end_p)
-   { 
-     auto header_p = reinterpret_cast<const Frames::WFrameHeader*>(start_p);
+   WReadError::WReadError ():
+      WException ("Error reading from conflict profiling data file")
+   {}
 
-     //first we need to make sure that we have enough data to determine the frame size
-     auto minSize = ptrdiff_t (0);
-     switch(header_p->m_type)
-     {
-     case Frames::FrameType::varName:
-        minSize = sizeof(Frames::WVarName);
-        break;
-        
-     case Frames::FrameType::commit:
-     case Frames::FrameType::conflict:
-        minSize = sizeof(Frames::WTransaction);
-        break;
-        
-     case Frames::FrameType::nameData:
-        minSize = sizeof(Frames::WNameData);
-        break;
+   WDataProcessor::WDataProcessor (std::istream& input):
+      m_input (input),
+      m_buffer (defaultBufferSize)
+   {}
 
-     default:
-        //if we get here it means we added a frame type and didn't include it in this function        
-        assert (false);
-        return std::make_tuple (WIncomplete {0}, start_p);
-     };
-     const auto maxSize = end_p - start_p;
-     if (maxSize < minSize)
-     {
-        return std::make_tuple (WIncomplete {minSize}, start_p);
-     }
+   namespace
+   {
+      size_t GetFrameSize (const uint8_t* data_p)
+      {
+         using namespace  ConflictProfilingInternal;
+         const auto header_p = reinterpret_cast<const Frames::WFrameHeader*>(data_p);
+         switch(header_p->m_type)
+         {
+         case Frames::FrameType::varName:
+            return sizeof (Frames::WVarName);
+        
+         case Frames::FrameType::commit:
+         case Frames::FrameType::conflict:
+            return sizeof (Frames::WTransaction);
+        
+         case Frames::FrameType::nameData:
+            return sizeof (Frames::WNameData);
 
-     //We have enough data to determine the full frame size
-     auto size = Frames::FrameSize (header_p);
-     if (maxSize < size)
-     {
-        return std::make_tuple (WIncomplete {size}, start_p);
-     }
-     
-     //we've got a full frame
-     switch(header_p->m_type)
-     {
-     case Frames::FrameType::varName:
-        return std::make_tuple (ConvertVarName (header_p), start_p + size);
-        
-     case Frames::FrameType::commit:
-        return std::make_tuple (ConvertCommit (header_p), start_p + size);
-        
-     case Frames::FrameType::conflict:
-        return std::make_tuple (ConvertConflict (header_p), start_p + size);
-        
-     case Frames::FrameType::nameData:
-        return std::make_tuple (ConvertNameData (header_p), start_p + size);
+         default:
+            //if we get here a new frame type was added but not handled here
+            assert (false);
+            return 0;
+         };
+      }
 
-     default:
-        //if we get here it means we added a frame type and didn't include it in this function        
-        assert (false);
-        return std::make_tuple (WIncomplete {0}, start_p);
-     };
+      size_t GetTotalSize (const uint8_t* data_p)
+      {
+         using namespace  ConflictProfilingInternal;
+         const auto header_p = reinterpret_cast<const Frames::WFrameHeader*>(data_p);
+         switch(header_p->m_type)
+         {
+         case Frames::FrameType::varName:
+            return sizeof(Frames::WVarName);
+            
+         case Frames::FrameType::commit:
+         case Frames::FrameType::conflict:
+         {
+            const auto frame_p = reinterpret_cast<const Frames::WTransaction*>(data_p);
+            return sizeof (Frames::WTransaction) + sizeof(void*)*frame_p->m_numVars;
+         }
+         
+         case Frames::FrameType::nameData:
+         {
+            const auto frame_p = reinterpret_cast<const Frames::WNameData*>(data_p);
+            return sizeof (Frames::WNameData) + frame_p->m_numChars;
+         }
+         
+         default:
+            //if we get here a new frame type was added but not handled here
+            assert (false);
+            return 0;
+         };
+
+      }
+      
+   }
+
+   boost::optional<WData> CheckEOF (std::istream& input)
+   {
+      if (input.eof ())
+      {
+         return boost::none;
+      }
+      else
+      {
+         throw WReadError ();
+      }
+   }
+   
+   boost::optional<WData> WDataProcessor::NextDataItem ()
+   {
+      using namespace  ConflictProfilingInternal;
+      
+      if (m_input.eof ())
+      {
+         return boost::none;
+      }
+
+      if (!m_input.read (reinterpret_cast<char*>(m_buffer.data ()), sizeof(Frames::WFrameHeader)))
+      {
+         return CheckEOF (m_input);
+      }
+
+      const auto frameSize = GetFrameSize (m_buffer.data ());
+      if (!m_input.read (reinterpret_cast<char*>(m_buffer.data ()) + sizeof(Frames::WFrameHeader), frameSize - sizeof(Frames::WFrameHeader)))
+      {
+         return CheckEOF (m_input);
+      }
+
+      const auto totalSize = GetTotalSize (m_buffer.data ());
+      if (totalSize != frameSize)
+      {
+         if (totalSize > m_buffer.size ())
+         {
+            m_buffer.resize (totalSize);
+         }
+
+         if (!m_input.read (reinterpret_cast<char*>(m_buffer.data ()) + frameSize, totalSize - frameSize))
+         {
+            return CheckEOF (m_input);
+         }
+      }
+      
+      const auto header_p = reinterpret_cast<const Frames::WFrameHeader*>(m_buffer.data ());
+      switch(header_p->m_type)
+      {
+      case Frames::FrameType::varName:
+         return ConvertVarName (header_p);
+        
+      case Frames::FrameType::commit:
+         return ConvertCommit (header_p);
+        
+      case Frames::FrameType::conflict:
+         return ConvertConflict (header_p);
+        
+      case Frames::FrameType::nameData:
+         return ConvertNameData (header_p);
+         
+      default:
+         //if we get here a new frame type was added but not handled here
+         assert (false);
+         return boost::none;
+      }
+
    }
 
 }}

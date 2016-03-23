@@ -70,7 +70,7 @@ namespace WSTM
 
    void WExceptionCapture::Reset ()
    {
-      m_thrower_v.Set (Thrower ());
+      SetVar (m_thrower_v, Thrower ());
    }
    
    void WExceptionCapture::Reset (WAtomic& at)

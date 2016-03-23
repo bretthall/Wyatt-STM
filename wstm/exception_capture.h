@@ -107,7 +107,7 @@ namespace WSTM
       template <typename Capture_t>
       void Capture (const Capture_t& exc)
       {
-         m_thrower_v.Set ([exc](){throw exc;});
+         SetVar (m_thrower_v, [exc](){throw exc;});
       }
       template <typename Capture_t>
       void Capture (const Capture_t& exc, WAtomic& at)

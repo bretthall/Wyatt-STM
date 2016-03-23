@@ -71,7 +71,7 @@ void RunTest (const F_t& f, boost::barrier& bar, const size_t numVars)
    auto vars = std::vector<WVar<int>>(numVars);
    for (auto& v: vars)
    {
-      v.Set (0);
+      SetVar (v, 0);
    }
 
    auto count = size_t (0);
