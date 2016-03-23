@@ -62,7 +62,7 @@ namespace WSTM
  
       using WData = boost::variant<WVarName, WConflict, WCommit, WName>;
 
-      class WReadError : public WException
+      class WReadError : public std::runtime_error
       {
       public:
          WReadError ();

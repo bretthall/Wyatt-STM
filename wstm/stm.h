@@ -35,6 +35,8 @@
 #include "exception.h"
 #include "maybe_unused.h"
 
+#include "../src/on_transaction_end.h"
+
 #ifdef WIN32
 //There is a bug in boost::shared_mutex on windows (https://svn.boost.org/trac/boost/ticket/7720),
 //this fixes it but has worse performance than the windows specific implementation. When the issue
@@ -191,25 +193,6 @@ namespace WSTM
 
       namespace Internal
       {
-         
-         class WOnTransactionEnd
-         {
-         public:
-#ifdef WSTM_CONFLICT_PROFILING
-            explicit WOnTransactionEnd (unsigned int* inChildTransaction);
-            
-            WOnTransactionEnd (WOnTransactionEnd&& e);
-            WOnTransactionEnd& operator= (WOnTransactionEnd&& e);
-
-            ~WOnTransactionEnd ();
-#endif
-            
-         private:
-#ifdef WSTM_CONFLICT_PROFILING
-            unsigned int* m_inChildTransaction_p;
-#endif
-         };
-
          //don't call this directly, Atomically will take care of it.
          WOnTransactionEnd StartTransaction (const char* filename, const int lineNumber);
       }

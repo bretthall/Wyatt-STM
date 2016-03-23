@@ -31,6 +31,7 @@
 #pragma once
 
 #include "stm.h"
+#include "on_transaction_end.h"
 
 #include <chrono>
 #include <memory>

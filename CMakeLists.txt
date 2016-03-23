@@ -95,11 +95,22 @@ set(WSTM_SOURCES
   src/deferred_result.cpp
   src/persistent_list.cpp
   src/exception.cpp
-  src/exception_capture.cpp
-  src/conflict_profiling_internal.cpp)
+  src/exception_capture.cpp)
 
 add_library(wstm ${WSTM_SOURCES})
 set_property(TARGET wstm PROPERTY CXX_STANDARD 14)
+
+if(WSTM_CONFLICT_PROFILING)
+  # The conflict profiling stuff goes in its own library so that the
+  # conflict_profiling_processor can use it without brining in all the
+  # other STM stuff. If we don't do this the processor will generate
+  # its own profiling data files which is unescessary and confusing
+  # for the user.
+  set(WSTM_CP_SOURCES src/conflict_profiling_internal.cpp)
+  add_library(wstm_cp ${WSTM_CP_SOURCES})
+  set_property(TARGET wstm_cp PROPERTY CXX_STANDARD 14)
+  set (wstm_cp_lib "wstm_cp")
+endif()
 
 set(UNIT_TEST_SOURCES
   testing/unit-tests/main.cpp
@@ -111,26 +122,26 @@ set(UNIT_TEST_SOURCES
 
 add_executable(unit_tests ${UNIT_TEST_SOURCES})
 set_property(TARGET unit_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(unit_tests wstm ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
+target_link_libraries(unit_tests wstm ${wstm_cp_lib} ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
 
 set(CONTENTION_TEST_SOURCES testing/contention/contention_test.cpp)
 add_executable(contention_tests ${CONTENTION_TEST_SOURCES})
 set_property(TARGET contention_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(contention_tests wstm ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
+target_link_libraries(contention_tests wstm ${wstm_cp_lib} ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
 
 set(CHANNEL_TEST_SOURCES testing/channel/channel_test.cpp)
 add_executable(channel_tests ${CHANNEL_TEST_SOURCES})
 set_property(TARGET channel_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(channel_tests wstm ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
+target_link_libraries(channel_tests wstm ${wstm_cp_lib} ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
 
 set(CORRECTNESS_TEST_SOURCES testing/correctness/correctness_test.cpp)
 add_executable(correctness_tests ${CORRECTNESS_TEST_SOURCES})
 set_property(TARGET correctness_tests PROPERTY CXX_STANDARD 14)
-target_link_libraries(correctness_tests wstm ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
+target_link_libraries(correctness_tests wstm ${wstm_cp_lib} ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
 
 if(WSTM_CONFLICT_PROFILING)
   set(CP_PROCESSING_SOURCES util/conflict_profiling_processor/conflict_profiling_processor.cpp)
   add_executable(conflict_profiling_processor ${CP_PROCESSING_SOURCES})
   set_property(TARGET conflict_profiling_processor PROPERTY CXX_STANDARD 14)
-  target_link_libraries(conflict_profiling_processor wstm ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
+  target_link_libraries(conflict_profiling_processor ${wstm_cp_lib} ${pthread_lib} ${clang_stdlib_lib} ${Boost_LIBRARIES})
 endif()

@@ -931,32 +931,6 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
 
       namespace Internal
       {
-         
-         WOnTransactionEnd::WOnTransactionEnd (unsigned int* inChildTransaction_p):
-            m_inChildTransaction_p (inChildTransaction_p)
-         {}
-   
-         WOnTransactionEnd::WOnTransactionEnd (WOnTransactionEnd&& e):
-            m_inChildTransaction_p (e.m_inChildTransaction_p)
-         {
-            e.m_inChildTransaction_p = nullptr;
-         }
-   
-         WOnTransactionEnd& WOnTransactionEnd::operator= (WOnTransactionEnd&& e)
-         {
-            m_inChildTransaction_p = e.m_inChildTransaction_p;
-            e.m_inChildTransaction_p = nullptr;
-            return *this;
-         }
-
-         WOnTransactionEnd::~WOnTransactionEnd ()
-         {
-            if (m_inChildTransaction_p)
-            {
-               --(*m_inChildTransaction_p);
-               m_inChildTransaction_p = nullptr;
-            }
-         }
 
          WOnTransactionEnd StartTransaction (const char* filename, const int lineNumber)
          {
