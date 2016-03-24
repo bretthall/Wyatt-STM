@@ -11,3 +11,4 @@ build32CP
 build64CP
 */#*
 *.profile
+*.sqlite3
