@@ -100,6 +100,20 @@ endif()
 include_directories(wstm SYSTEM ${SQLITE_INCLUDE_DIR} ${Boost_INCLUDE_DIRS})
 link_directories(${SQLITE_LIB_DIR} ${Boost_LIBRARY_DIRS})
 
+set(WSTM_HEADERS
+  wstm/channel.h
+  wstm/deferred_result.h
+  wstm/exception.h
+  wstm/exception_capture.h
+  wstm/exports.h
+  wstm/find_arg.h
+  wstm/maybe_unused.h
+  wstm/persistent_list.h
+  wstm/stm.h
+  src/on_transaction_end.h)
+
+source_group("Header Files" REGULAR_EXPRESSION ".*\\.h")
+
 set(WSTM_SOURCES
   src/stm.cpp
   src/channel.cpp
@@ -108,7 +122,7 @@ set(WSTM_SOURCES
   src/exception.cpp
   src/exception_capture.cpp)
 
-add_library(wstm ${WSTM_SOURCES})
+add_library(wstm ${WSTM_HEADERS} ${WSTM_SOURCES})
 set_property(TARGET wstm PROPERTY CXX_STANDARD 14)
 
 if(WSTM_CONFLICT_PROFILING)
@@ -117,8 +131,11 @@ if(WSTM_CONFLICT_PROFILING)
   # other STM stuff. If we don't do this the processor will generate
   # its own profiling data files which is unescessary and confusing
   # for the user.
+  set(WSTM_CP_HEADERS
+    wstm/conflict_profiling_processing.h
+    src/conflict_profiling_internal.h)
   set(WSTM_CP_SOURCES src/conflict_profiling_internal.cpp)
-  add_library(wstm_cp ${WSTM_CP_SOURCES})
+  add_library(wstm_cp ${WSTM_CP_HEADERS} ${WSTM_CP_SOURCES})
   set_property(TARGET wstm_cp PROPERTY CXX_STANDARD 14)
   set (wstm_cp_lib "wstm_cp")
 endif()
