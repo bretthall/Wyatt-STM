@@ -148,6 +148,7 @@ void CollapseNames (WProfileData& profData)
          ++nextKey;
       }
    }
+   keyToKey[-1] = -1;
 
    auto newNames = std::map<NameKey, std::string>();
    for (const auto& key: strToKey)
@@ -181,6 +182,49 @@ void CollapseNames (WProfileData& profData)
       commitConflictRatios[{keyToKey[ratio.first.m_file], ratio.first.m_line}] = ratio.second;
    }
    profData.m_commitConflictRatios = std::move (commitConflictRatios);
+}
+
+void CleanUpVars (WProfileData& profData)
+{
+   //remove variables from got/set lists if they aren't named. Unnamed variables in the lists just
+   //cause confusion as there's no way to connect them from on instance of a transaction to
+   //another.
+
+   const auto ToNameKey = [&profData](const VarId v)
+      {
+         const auto it = profData.m_varNames.find (v);
+         if (it != std::end (profData.m_varNames))
+         {
+            return it->second;
+         }
+         else
+         {
+            return -1;
+         }
+      };
+   const auto HasName = [](const VarId v) {return (v != -1);};
+   
+   for (auto& conflict: profData.m_conflicts)
+   {
+      auto newGot = std::vector<VarId>();
+      newGot.reserve (conflict.second.m_got.size ());
+      boost::copy (conflict.second.m_got
+                   | boost::adaptors::transformed (ToNameKey)
+                   | boost::adaptors::filtered (HasName),
+                   std::back_inserter (newGot));
+      conflict.second.m_got = std::move (newGot);
+   }
+
+   for (auto& commit: profData.m_commits)
+   {
+      auto newSet = std::vector<VarId>();
+      newSet.reserve (commit.second.m_set.size ());
+      boost::copy (commit.second.m_set
+                   | boost::adaptors::transformed (ToNameKey)
+                   | boost::adaptors::filtered (HasName),
+                   std::back_inserter (newSet));
+      commit.second.m_set = std::move (newSet);
+   }
 }
 
 template <typename Map_t, typename Gen_t>
@@ -356,19 +400,6 @@ void Step (const StmtPtr& stmt_p)
    }
 }
 
-void InsertVarNames (const DbPtr& db_p, const WProfileData& profData)
-{
-   const auto stmt_p = Prepare (db_p, "INSERT INTO VarNames VALUES (?, ?);");
-   
-   for (const auto& val: profData.m_varNames)
-   {
-      Reset (stmt_p);
-      Bind (stmt_p, 1, val.first);
-      Bind (stmt_p, 2, val.second);
-      Step (stmt_p);
-   }
-}
-
 void InsertRawConflicts (const DbPtr& db_p, const WProfileData& profData)
 {
    const auto stmt_p = Prepare (db_p, "INSERT INTO RawConflicts VALUES (?, ?, ?, ?, ?, ?, ?);");
@@ -540,15 +571,13 @@ boost::optional<std::string> WriteResults (const char* filename, const WProfileD
       };
    try
    {
-      CreateTable ("VarNames (VarId, NameKey)");
-      CreateIndex ("VarNames_VarId ON VarNames (VarId)");
       CreateTable ("RawConflicts (File, Line, NameKey, ThreadId, ThreadNameKey, Start, End)");
       CreateIndex ("RawConflicts_File_Line ON RawConflicts (File, Line)");
-      CreateTable ("RawConflictVars (File, Line, VarId)");
+      CreateTable ("RawConflictVars (File, Line, VarNameKey)");
       CreateIndex ("RawConflictVars_File_Line ON RawConflictVars (File, Line)");
       CreateTable ("RawCommits (File, Line, NameKey, ThreadId, ThreadNameKey, Start, End)");
       CreateIndex ("RawCommits_File_Line ON RawCommits (File, Line)");
-      CreateTable ("RawCommitVars (File, Line, VarId)");
+      CreateTable ("RawCommitVars (File, Line, VarNameKey)");
       CreateIndex ("RawCommitVars_File_Line ON RawCommitVars (File, Line)");
       CreateTable ("Names (NameKey, Name)");
       CreateIndex ("Names_NameKey ON Names (NameKey)");
@@ -556,11 +585,10 @@ boost::optional<std::string> WriteResults (const char* filename, const WProfileD
       CreateIndex ("CommitConflictRatios_File_Line ON CommitConflictRatios (File, Line)");
       CreateTable ("ConflictingTransactions (ConId, File, Line, ConFile, ConLine, Count)");
       CreateIndex ("ConflictingTransactions_File_Line ON ConflictingTransactions (File, Line)");
-      CreateTable ("ConflictingTransactionVars (ConId, VarId)");
+      CreateTable ("ConflictingTransactionVars (ConId, VarNameKey)");
       CreateIndex ("ConflictingTransactionVars_ConId ON ConflictingTransactionVars (ConId)");
 
       RunSql ("BEGIN TRANSACTION;");
-      InsertVarNames (dbPtr_p, profData);
       InsertRawConflicts (dbPtr_p, profData);
       InsertRawCommits (dbPtr_p, profData);
       InsertNames (dbPtr_p, profData);
@@ -600,6 +628,7 @@ boost::optional<std::string> ProcessFile (const char* filename)
       return "Error reading from file";
    }
    CollapseNames (profData);
+   CleanUpVars (profData);
    const auto transactionConflicts = ProcessConflicts (profData);
 
    return WriteResults (filename, profData, transactionConflicts);
