@@ -25,11 +25,9 @@ using namespace  WSTM::ConflictProfiling;
 #include <fstream>
 #include <map>
 
-using FileNameKey = const void*;
-
 struct WTransactionKey
 {
-   FileNameKey m_file;
+   NameKey m_file;
    unsigned int m_line;
 };
 
@@ -55,9 +53,6 @@ struct WCommitConflictRatio
    unsigned int m_numConflicts;
 };
 
-using NameKey = const void*;
-using VarId = const void*;
-
 struct WProfileData : public boost::static_visitor<>
 {
    std::map<VarId, NameKey> m_varNames;
@@ -75,7 +70,7 @@ struct WProfileData : public boost::static_visitor<>
 
 void WProfileData::operator()(WVarName& item)
 {
-   m_varNames[item.m_var_p] = item.m_nameKey;
+   m_varNames[item.m_var] = item.m_name;
 }
 
 void WProfileData::operator()(WConflict& item)
@@ -83,14 +78,14 @@ void WProfileData::operator()(WConflict& item)
    boost::sort (item.m_got);
    m_conflicts[item.m_end] = std::move (item);
 
-   const auto it = m_commitConflictRatios.find ({item.m_fileNameKey, item.m_line});
+   const auto it = m_commitConflictRatios.find ({item.m_file, item.m_line});
    if (it != std::end (m_commitConflictRatios))
    {
       ++(it->second.m_numConflicts);
    }
    else
    {
-      m_commitConflictRatios[{item.m_fileNameKey, item.m_line}] = {0, 1};
+      m_commitConflictRatios[{item.m_file, item.m_line}] = {0, 1};
    }
 }
 
@@ -99,14 +94,14 @@ void WProfileData::operator()(WCommit& item)
    boost::sort (item.m_set);
    m_commits[item.m_end] = std::move (item);
 
-   const auto it = m_commitConflictRatios.find ({item.m_fileNameKey, item.m_line});
+   const auto it = m_commitConflictRatios.find ({item.m_file, item.m_line});
    if (it != std::end (m_commitConflictRatios))
    {
       ++(it->second.m_numCommits);
    }
    else
    {
-      m_commitConflictRatios[{item.m_fileNameKey, item.m_line}] = {1, 0};
+      m_commitConflictRatios[{item.m_file, item.m_line}] = {1, 0};
    }
 }
    
@@ -163,11 +158,11 @@ ProcessedConflicts ProcessConflicts (const WProfileData& profData)
    ProcessedConflicts transactionConflicts;
    auto conflictVars = std::vector<VarId>();
    auto conflictVarsUnion = std::vector<NameKey>();
-   const auto VarIdToNameKey = [&](VarId id) {return GetWithDefault (profData.m_varNames, id, nullptr);};
+   const auto VarIdToNameKey = [&](VarId id) {return GetWithDefault (profData.m_varNames, id, -1);};
    for (const auto& conflict: profData.m_conflicts)
    {
       const auto conflictIt = GetOrInsert (transactionConflicts,
-                                           {conflict.second.m_fileNameKey, conflict.second.m_line},
+                                           {conflict.second.m_file, conflict.second.m_line},
                                            []() {return WTransactionConflicts ();});
       auto commitIt = profData.m_commits.lower_bound (conflict.second.m_start);
       const auto endCommits = profData.m_commits.upper_bound (conflict.second.m_end);
@@ -178,7 +173,7 @@ ProcessedConflicts ProcessConflicts (const WProfileData& profData)
          if (!conflictVars.empty ())
          {
             const auto conTransIt = GetOrInsert (conflictIt->second.m_conflicts,
-                                                 {commitIt->second.m_fileNameKey, commitIt->second.m_line},
+                                                 {commitIt->second.m_file, commitIt->second.m_line},
                                                  [](){return WConflictingTransaction ();});
             
             ++(conTransIt->second.m_count);
@@ -249,18 +244,9 @@ void Reset (const StmtPtr& stmt_p)
    }
 }
 
-void Bind (const StmtPtr& stmt_p, const int pos, const void* ptr)
+void Bind (const StmtPtr& stmt_p, const int pos, const int value)
 {
-   const auto errCode = sqlite3_bind_int64 (stmt_p.get (), pos, *reinterpret_cast<const sqlite3_int64*>(&ptr));
-   if (errCode != SQLITE_OK)
-   {
-      throw WSqlError {sqlite3_errstr (errCode)};
-   }
-}
-
-void Bind (const StmtPtr& stmt_p, const int pos, const std::string& str)
-{
-   const auto errCode = sqlite3_bind_text (stmt_p.get (), pos, str.c_str (), -1, SQLITE_STATIC);
+   const auto errCode = sqlite3_bind_int (stmt_p.get (), pos, value);
    if (errCode != SQLITE_OK)
    {
       throw WSqlError {sqlite3_errstr (errCode)};
@@ -270,6 +256,15 @@ void Bind (const StmtPtr& stmt_p, const int pos, const std::string& str)
 void Bind (const StmtPtr& stmt_p, const int pos, const unsigned int value)
 {
    const auto errCode = sqlite3_bind_int64 (stmt_p.get (), pos, static_cast<sqlite3_int64>(value));
+   if (errCode != SQLITE_OK)
+   {
+      throw WSqlError {sqlite3_errstr (errCode)};
+   }
+}
+
+void Bind (const StmtPtr& stmt_p, const int pos, const std::string& str)
+{
+   const auto errCode = sqlite3_bind_text (stmt_p.get (), pos, str.c_str (), -1, SQLITE_STATIC);
    if (errCode != SQLITE_OK)
    {
       throw WSqlError {sqlite3_errstr (errCode)};
@@ -289,18 +284,6 @@ void Bind (const StmtPtr& stmt_p, const int pos, const TimePoint time)
 {
    const auto ticks = std::chrono::duration_cast<std::chrono::microseconds>(time.time_since_epoch ()).count ();
    const auto errCode = sqlite3_bind_int64 (stmt_p.get (), pos, ticks);
-   if (errCode != SQLITE_OK)
-   {
-      throw WSqlError {sqlite3_errstr (errCode)};
-   }
-}
-
-std::hash<std::thread::id> s_threadIdHasher;
-
-void Bind (const StmtPtr& stmt_p, const int pos, const std::thread::id id)
-{
-   const auto hash = s_threadIdHasher (id);
-   const auto errCode = sqlite3_bind_int64 (stmt_p.get (), pos, *reinterpret_cast<const sqlite3_int64*>(&hash));
    if (errCode != SQLITE_OK)
    {
       throw WSqlError {sqlite3_errstr (errCode)};
@@ -336,17 +319,17 @@ void InsertRawConflicts (const DbPtr& db_p, const WProfileData& profData)
    for (const auto& val: profData.m_conflicts)
    {
       Reset (stmt_p);
-      Bind (stmt_p, 1, val.second.m_fileNameKey);
+      Bind (stmt_p, 1, val.second.m_file);
       Bind (stmt_p, 2, val.second.m_line);
-      Bind (stmt_p, 3, val.second.m_transactionNameKey);
+      Bind (stmt_p, 3, val.second.m_transaction);
       Bind (stmt_p, 4, val.second.m_threadId);
-      Bind (stmt_p, 5, val.second.m_threadNameKey);
+      Bind (stmt_p, 5, val.second.m_thread);
       Bind (stmt_p, 6, val.second.m_start);
       Bind (stmt_p, 7, val.second.m_end);
       Step (stmt_p);
 
       Reset (gotStmt_p);
-      Bind (gotStmt_p, 1, val.second.m_fileNameKey);
+      Bind (gotStmt_p, 1, val.second.m_file);
       Bind (gotStmt_p, 2, val.second.m_line);
       for (const auto got_p: val.second.m_got)
       {
@@ -364,17 +347,17 @@ void InsertRawCommits (const DbPtr& db_p, const WProfileData& profData)
    for (const auto& val: profData.m_commits)
    {
       Reset (stmt_p);
-      Bind (stmt_p, 1, val.second.m_fileNameKey);
+      Bind (stmt_p, 1, val.second.m_file);
       Bind (stmt_p, 2, val.second.m_line);
-      Bind (stmt_p, 3, val.second.m_transactionNameKey);
+      Bind (stmt_p, 3, val.second.m_transaction);
       Bind (stmt_p, 4, val.second.m_threadId);
-      Bind (stmt_p, 5, val.second.m_threadNameKey);
+      Bind (stmt_p, 5, val.second.m_thread);
       Bind (stmt_p, 6, val.second.m_start);
       Bind (stmt_p, 7, val.second.m_end);
       Step (stmt_p);
 
       Reset (setStmt_p);
-      Bind (setStmt_p, 1, val.second.m_fileNameKey);
+      Bind (setStmt_p, 1, val.second.m_file);
       Bind (setStmt_p, 2, val.second.m_line);
       for (const auto set_p: val.second.m_set)
       {

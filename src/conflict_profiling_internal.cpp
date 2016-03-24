@@ -499,56 +499,62 @@ namespace WSTM
    {
       namespace
       {
-         WVarName ConvertVarName (const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
+         WVarName ConvertVarName (WDataProcessor::WPtrTranslator& translator, const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
          {
             assert (header_p->m_type == ConflictProfilingInternal::Frames::FrameType::varName);
             auto frame_p = reinterpret_cast<const ConflictProfilingInternal::Frames::WVarName*>(header_p);
             auto data = WVarName ();
-            data.m_var_p = frame_p->m_var_p;
-            data.m_nameKey = frame_p->m_name;
+            data.m_var = translator.GetVarId (frame_p->m_var_p);
+            data.m_name = translator.GetNameKey (frame_p->m_name);
             return data;
          }
 
-         WConflict ConvertConflict (const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
+         WConflict ConvertConflict (WDataProcessor::WPtrTranslator& translator, const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
          {
             assert (header_p->m_type == ConflictProfilingInternal::Frames::FrameType::conflict);
             auto frame_p = reinterpret_cast<const ConflictProfilingInternal::Frames::WTransaction*>(header_p);
             auto data = WConflict ();
-            data.m_transactionNameKey = frame_p->m_name;
-            data.m_threadId = frame_p->m_threadId;
-            data.m_threadNameKey = frame_p->m_threadName;
+            data.m_transaction = translator.GetNameKey (frame_p->m_name);
+            data.m_threadId = translator.GetThreadId (frame_p->m_threadId);
+            data.m_thread = translator.GetNameKey (frame_p->m_threadName);
             data.m_start = frame_p->m_start;
             data.m_end = frame_p->m_end;
-            data.m_fileNameKey = frame_p->m_file;
+            data.m_file = translator.GetNameKey (frame_p->m_file);
             data.m_line = frame_p->m_line;
             auto var_p = reinterpret_cast<const void* const*>(reinterpret_cast<const uint8_t*>(frame_p) + sizeof(ConflictProfilingInternal::Frames::WTransaction));
-            data.m_got = std::vector<const void*>(var_p, var_p + frame_p->m_numVars);
+            data.m_got = std::vector<VarId>(frame_p->m_numVars);
+            std::transform (var_p, var_p + frame_p->m_numVars,
+                            std::begin (data.m_got),
+                            [&translator](const void* v_p) {return translator.GetVarId (v_p);});
             return data;
          }
 
-         WCommit ConvertCommit (const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
+         WCommit ConvertCommit (WDataProcessor::WPtrTranslator& translator, const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
          {
             assert (header_p->m_type == ConflictProfilingInternal::Frames::FrameType::commit);
             auto frame_p = reinterpret_cast<const ConflictProfilingInternal::Frames::WTransaction*>(header_p);
             auto data = WCommit ();
-            data.m_transactionNameKey = frame_p->m_name;
-            data.m_threadId = frame_p->m_threadId;
-            data.m_threadNameKey = frame_p->m_threadName;
+            data.m_transaction = translator.GetNameKey (frame_p->m_name);
+            data.m_threadId = translator.GetThreadId (frame_p->m_threadId);
+            data.m_thread = translator.GetNameKey (frame_p->m_threadName);
             data.m_start = frame_p->m_start;
             data.m_end = frame_p->m_end;
-            data.m_fileNameKey = frame_p->m_file;
+            data.m_file = translator.GetNameKey (frame_p->m_file);
             data.m_line = frame_p->m_line;
             auto var_p = reinterpret_cast<const void* const*>(reinterpret_cast<const uint8_t*>(frame_p) + sizeof(ConflictProfilingInternal::Frames::WTransaction));
-            data.m_set = std::vector<const void*>(var_p, var_p + frame_p->m_numVars);
+            data.m_set = std::vector<VarId>(frame_p->m_numVars);
+            std::transform (var_p, var_p + frame_p->m_numVars,
+                            std::begin (data.m_set),
+                            [&translator](const void* v_p) {return translator.GetVarId (v_p);});
             return data;
          }
 
-         WName ConvertNameData (const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
+         WName ConvertNameData (WDataProcessor::WPtrTranslator& translator, const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
          {
             assert (header_p->m_type == ConflictProfilingInternal::Frames::FrameType::nameData);
             auto frame_p = reinterpret_cast<const ConflictProfilingInternal::Frames::WNameData*>(header_p);
             auto data = WName ();
-            data.m_key = frame_p->m_name;
+            data.m_key = translator.GetNameKey (frame_p->m_name);
             auto chars_p = reinterpret_cast<const char*>(frame_p) + sizeof(ConflictProfilingInternal::Frames::WNameData);
             data.m_name = std::string(chars_p, chars_p + frame_p->m_numChars);
             return data;
@@ -673,23 +679,90 @@ namespace WSTM
          switch(header_p->m_type)
          {
          case Frames::FrameType::varName:
-            return ConvertVarName (header_p);
+            return ConvertVarName (m_translator, header_p);
         
          case Frames::FrameType::commit:
-            return ConvertCommit (header_p);
+            return ConvertCommit (m_translator, header_p);
         
          case Frames::FrameType::conflict:
-            return ConvertConflict (header_p);
+            return ConvertConflict (m_translator, header_p);
         
          case Frames::FrameType::nameData:
-            return ConvertNameData (header_p);
+            return ConvertNameData (m_translator, header_p);
          
          default:
             //if we get here a new frame type was added but not handled here
             assert (false);
             return boost::none;
          }
+      }
 
+      WDataProcessor::WPtrTranslator::WPtrTranslator ():
+         m_nextVarId (0),
+         m_nextNameKey (0),
+         m_nextThreadId (0)
+      {}
+         
+      VarId WDataProcessor::WPtrTranslator::GetVarId (const void* var_p)
+      {
+         if (var_p != nullptr)
+         {
+            const auto it = m_varIds.find (var_p);
+            if (it != std::end (m_varIds))
+            {
+               return it->second;
+            }
+            else
+            {
+               m_varIds[var_p] = m_nextVarId;
+               auto id = m_nextVarId;
+               ++m_nextVarId;
+               return id;
+            }
+         }
+         else
+         {
+            return -1;
+         }
+      }
+         
+      NameKey WDataProcessor::WPtrTranslator::GetNameKey (const void* name_p)
+      {
+         if (name_p != nullptr)
+         {
+            const auto it = m_nameKeys.find (name_p);
+            if (it != std::end (m_nameKeys))
+            {
+               return it->second;
+            }
+            else
+            {
+               m_nameKeys[name_p] = m_nextNameKey;
+               auto id = m_nextNameKey;
+               ++m_nextNameKey;
+               return id;
+            }
+         }
+         else
+         {
+            return -1;
+         }
+      }
+
+      ThreadId WDataProcessor::WPtrTranslator::GetThreadId (const std::thread::id tid)
+      {
+         const auto it = m_threadIds.find (tid);
+         if (it != std::end (m_threadIds))
+         {
+            return it->second;
+         }
+         else
+         {
+            m_threadIds[tid] = m_nextThreadId;
+            auto id = m_nextThreadId;
+            ++m_nextThreadId;
+            return id;
+         }
       }
 
       namespace Internal

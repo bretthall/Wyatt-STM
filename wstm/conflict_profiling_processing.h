@@ -17,46 +17,52 @@
 #include <vector>
 #include <istream>
 #include <thread>
+#include <unordered_map>
 
 namespace WSTM
 {
    namespace ConflictProfiling
    {
+      using VarId = int32_t;
+      using NameKey = int32_t;
+      
       struct WVarName
       {
-         const void* m_var_p;
-         const void* m_nameKey;
+         VarId m_var;
+         NameKey m_name;
       };
 
       using TimePoint = std::chrono::high_resolution_clock::time_point;
+      using ThreadId = unsigned int;
       
       struct WConflict
       {
-         const void* m_transactionNameKey;
-         std::thread::id m_threadId;
-         const void* m_threadNameKey;
+         NameKey m_transaction;
+         ThreadId m_threadId;
+         NameKey m_thread;
          TimePoint m_start;
          TimePoint m_end;
-         const void* m_fileNameKey;
+         NameKey m_file;
          unsigned int m_line;
-         std::vector<const void*> m_got;
+         std::vector<VarId> m_got;
       };
+
       
       struct WCommit
       {
-         const void* m_transactionNameKey;
-         std::thread::id m_threadId;
-         const void* m_threadNameKey;
+         NameKey m_transaction;
+         ThreadId m_threadId;
+         NameKey m_thread;
          TimePoint m_start;
          TimePoint m_end;
-         const void* m_fileNameKey;
+         NameKey m_file;
          unsigned int m_line;
-         std::vector<const void*> m_set;
+         std::vector<VarId> m_set;
       };
 
       struct WName
       {
-         const void* m_key;
+         NameKey m_key;
          std::string m_name;
       };
  
@@ -74,10 +80,29 @@ namespace WSTM
          WDataProcessor (std::istream& input);
 
          boost::optional<WData> NextDataItem ();
-         
+
+         class WPtrTranslator
+         {
+         public:
+            WPtrTranslator ();
+
+            VarId GetVarId (const void* var_p);
+            NameKey GetNameKey (const void* name_p);
+            ThreadId GetThreadId (const std::thread::id id);
+            
+         private:
+            VarId m_nextVarId;
+            std::unordered_map<const void*, VarId> m_varIds;
+            NameKey m_nextNameKey;
+            std::unordered_map<const void*, NameKey> m_nameKeys;
+            NameKey m_nextThreadId;
+            std::unordered_map<std::thread::id, ThreadId> m_threadIds;
+         };
+
       private:
          std::istream& m_input;
          std::vector<uint8_t> m_buffer;
+         WPtrTranslator m_translator;
       };
 
    }
