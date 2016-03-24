@@ -126,6 +126,63 @@ struct WTransactionConflicts
    std::map<WTransactionKey, WConflictingTransaction> m_conflicts;
 };
 
+void CollapseNames (WProfileData& profData)
+{
+   //Clean up the names, there can be lots of duplicates so remove them and patch up everything
+   //else.
+   
+   auto strToKey = std::unordered_map<std::string, NameKey>();
+   auto keyToKey = std::unordered_map<NameKey, NameKey>();
+   auto nextKey = NameKey (0);
+   for (const auto& name: profData.m_names)
+   {
+      const auto it = strToKey.find (name.second);
+      if (it != std::end (strToKey))
+      {
+         keyToKey[name.first] = it->second;
+      }
+      else
+      {
+         strToKey[name.second] = nextKey;
+         keyToKey[name.first] = nextKey;
+         ++nextKey;
+      }
+   }
+
+   auto newNames = std::map<NameKey, std::string>();
+   for (const auto& key: strToKey)
+   {
+      newNames[key.second] = key.first;
+   }
+   profData.m_names = std::move (newNames);   
+
+   for (auto& var: profData.m_varNames)
+   {
+      var.second = keyToKey[var.second];
+   }
+
+   for (auto& conflict: profData.m_conflicts)
+   {
+      conflict.second.m_transaction = keyToKey[conflict.second.m_transaction];
+      conflict.second.m_thread = keyToKey[conflict.second.m_thread];
+      conflict.second.m_file = keyToKey[conflict.second.m_file];
+   }
+
+   for (auto& commit: profData.m_commits)
+   {
+      commit.second.m_transaction = keyToKey[commit.second.m_transaction];
+      commit.second.m_thread = keyToKey[commit.second.m_thread];
+      commit.second.m_file = keyToKey[commit.second.m_file];
+   }
+
+   auto commitConflictRatios = std::map<WTransactionKey, WCommitConflictRatio>();
+   for (const auto& ratio: profData.m_commitConflictRatios)
+   {
+      commitConflictRatios[{keyToKey[ratio.first.m_file], ratio.first.m_line}] = ratio.second;
+   }
+   profData.m_commitConflictRatios = std::move (commitConflictRatios);
+}
+
 template <typename Map_t, typename Gen_t>
 auto GetOrInsert (Map_t& map, const typename Map_t::key_type& key, Gen_t&& gen)
 {
@@ -542,7 +599,7 @@ boost::optional<std::string> ProcessFile (const char* filename)
    {
       return "Error reading from file";
    }
-
+   CollapseNames (profData);
    const auto transactionConflicts = ProcessConflicts (profData);
 
    return WriteResults (filename, profData, transactionConflicts);
