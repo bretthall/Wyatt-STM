@@ -471,7 +471,7 @@ void InsertNames (const DbPtr& db_p, const WProfileData& profData)
 
 void InsertCommitConflictRatios (const DbPtr& db_p, const WProfileData& profData)
 {
-   const auto stmt_p = Prepare (db_p, "INSERT INTO CommitConflictRatios VALUES (?, ?, ?, ?, ?, ?);");
+   const auto stmt_p = Prepare (db_p, "INSERT INTO CommitConflictRatios_ VALUES (?, ?, ?, ?, ?, ?);");
    
    for (const auto& val: profData.m_commitConflictRatios)
    {
@@ -491,8 +491,8 @@ void InsertCommitConflictRatios (const DbPtr& db_p, const WProfileData& profData
 
 void InsertConflictingTransactions (const DbPtr& db_p, const ProcessedConflicts& conflicts)
 {
-   const auto stmt_p = Prepare (db_p, "INSERT INTO ConflictingTransactions VALUES (?, ?, ?, ?, ?, ?);");
-   const auto varStmt_p = Prepare (db_p, "INSERT INTO ConflictingTransactionVars VALUES (?, ?);");
+   const auto stmt_p = Prepare (db_p, "INSERT INTO ConflictingTransactions_ VALUES (?, ?, ?, ?, ?, ?);");
+   const auto varStmt_p = Prepare (db_p, "INSERT INTO ConflictingTransactionVars_ VALUES (?, ?);");
    auto conId = unsigned int (0);
    for (const auto& conflictee: conflicts)
    {
@@ -581,13 +581,44 @@ boost::optional<std::string> WriteResults (const char* filename, const WProfileD
       CreateIndex ("RawCommitVars_File_Line ON RawCommitVars (File, Line)");
       CreateTable ("Names (NameKey, Name)");
       CreateIndex ("Names_NameKey ON Names (NameKey)");
-      CreateTable ("CommitConflictRatios (File, Line, TotalAttempts, Commits, Conflicts, PercentConflicts)");
-      CreateIndex ("CommitConflictRatios_File_Line ON CommitConflictRatios (File, Line)");
-      CreateTable ("ConflictingTransactions (ConId, File, Line, ConFile, ConLine, Count)");
-      CreateIndex ("ConflictingTransactions_File_Line ON ConflictingTransactions (File, Line)");
-      CreateTable ("ConflictingTransactionVars (ConId, VarNameKey)");
-      CreateIndex ("ConflictingTransactionVars_ConId ON ConflictingTransactionVars (ConId)");
-
+      CreateTable ("CommitConflictRatios_ (File, Line, TotalAttempts, Commits, Conflicts, PercentConflicts)");
+      CreateIndex ("CommitConflictRatios_File_Line ON CommitConflictRatios_ (File, Line)");
+      RunSql ("CREATE VIEW CommitConflictRatios AS\n"
+              "SELECT\n"
+              "   Names.Name AS Filename,\n"
+              "   CommitConflictRatios_.Line,\n"
+              "   CommitConflictRatios_.TotalAttempts,\n"
+              "   CommitConflictRatios_.Commits,\n"
+              "   CommitConflictRatios_.Conflicts,\n"
+              "   CommitConflictRatios_.PercentConflicts\n"
+              "FROM\n"
+              "   CommitConflictRatios_\n"
+              "   JOIN RawCommits ON RawCommits.File == CommitConflictRatios_.File AND RawCommits.Line == CommitConflictRatios_.Line\n"
+              "   LEFT JOIN Names ON RawCommits.File==Names.NameKey;");
+      CreateTable ("ConflictingTransactions_ (ConId, File, Line, ConFile, ConLine, Count)");
+      CreateIndex ("ConflictingTransactions_File_Line ON ConflictingTransactions_ (File, Line)");
+      RunSql ("CREATE VIEW ConflictingTransactions AS\n"
+              "SELECT\n"
+              "   ConflictingTransactions_.ConId,\n"
+              "   N1.Name as File,\n"
+              "   ConflictingTransactions_.Line,\n"
+              "   N2.Name as ConFile,\n"
+              "   ConflictingTransactions_.ConLine,\n"
+              "   ConflictingTransactions_.Count\n"
+              "FROM\n"
+              "   ConflictingTransactions_\n"
+              "   LEFT JOIN Names AS N1 ON ConflictingTransactions_.File==N1.NameKey\n"
+              "   LEFT JOIN Names AS N2 ON ConflictingTransactions_.ConFile==N2.NameKey;");
+      CreateTable ("ConflictingTransactionVars_ (ConId, VarNameKey)");
+      CreateIndex ("ConflictingTransactionVars_ConId ON ConflictingTransactionVars_ (ConId)");
+      RunSql ("CREATE VIEW ConflictingTransactionVars AS\n"
+              "SELECT\n"
+              "   ConflictingTransactionVars_.ConId,\n"
+              "   Names.Name\n"
+              "FROM\n"
+              "   ConflictingTransactionVars_\n"
+              "   LEFT JOIN Names ON ConflictingTransactionVars_.VarNameKey==Names.NameKey;");
+      
       RunSql ("BEGIN TRANSACTION;");
       InsertRawConflicts (dbPtr_p, profData);
       InsertRawCommits (dbPtr_p, profData);
