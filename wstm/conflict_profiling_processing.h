@@ -87,6 +87,7 @@ namespace WSTM
             WPtrTranslator ();
 
             VarId GetVarId (const void* var_p);
+            boost::optional<NameKey> GetUniqueNameKey (const void* name_p, const std::string& str);
             NameKey GetNameKey (const void* name_p);
             ThreadId GetThreadId (const std::thread::id id);
             
@@ -95,12 +96,16 @@ namespace WSTM
             std::unordered_map<const void*, VarId> m_varIds;
             NameKey m_nextNameKey;
             std::unordered_map<const void*, NameKey> m_nameKeys;
+            std::unordered_map<std::string, NameKey> m_uniqueNames;
             NameKey m_nextThreadId;
             std::unordered_map<std::thread::id, ThreadId> m_threadIds;
          };
 
       private:
          std::istream& m_input;
+         std::istream::pos_type m_beginPos;
+         std::istream::pos_type m_namePos;
+         bool m_readingNames;
          std::vector<uint8_t> m_buffer;
          WPtrTranslator m_translator;
       };

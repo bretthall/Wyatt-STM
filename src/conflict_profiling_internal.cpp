@@ -212,6 +212,11 @@ namespace WSTM
          const auto filename = boost::str (boost::format ("wstm_%1%.profile") % std::chrono::system_clock::to_time_t (std::chrono::system_clock::now ()));
          auto out = std::ofstream (filename, std::ios::out | std::ios::binary);
 
+         //reserve space for the name offset (we need the name offset so that they can be read first
+         //during processing)
+         const auto beginPos = std::streamoff (out.tellp ());
+         out.write (reinterpret_cast<const char*>(&beginPos), sizeof(beginPos));
+         
          auto skipBytes = ptrdiff_t (0);
          std::unique_ptr<WPage> cur_p = std::move (m_firstPage_p);
          while (cur_p)
@@ -258,6 +263,8 @@ namespace WSTM
             cur_p = cur_p->ReleaseNext ();
          }
 
+         const auto namePos = std::streamoff (out.tellp ());
+
          auto nameData = Frames::WNameData ();
          nameData.m_type = Frames::FrameType::nameData;
          names.erase (nullptr);
@@ -271,6 +278,10 @@ namespace WSTM
                out.write (name_p, nameData.m_numChars);
             }
          }
+
+         static_assert (sizeof(namePos) == sizeof(beginPos), "stream position size mismatch");
+         out.seekp (beginPos);
+         out.write (reinterpret_cast<const char*>(&namePos), sizeof(namePos));
       }
 
       void WMainData::NewThread ()
@@ -549,15 +560,22 @@ namespace WSTM
             return data;
          }
 
-         WName ConvertNameData (WDataProcessor::WPtrTranslator& translator, const ConflictProfilingInternal::Frames::WFrameHeader* header_p)
+         boost::optional<WName> ConvertNameData (WDataProcessor::WPtrTranslator& translator, const ConflictProfilingInternal::Frames::WNameData* frame_p)
          {
-            assert (header_p->m_type == ConflictProfilingInternal::Frames::FrameType::nameData);
-            auto frame_p = reinterpret_cast<const ConflictProfilingInternal::Frames::WNameData*>(header_p);
-            auto data = WName ();
-            data.m_key = translator.GetNameKey (frame_p->m_name);
             auto chars_p = reinterpret_cast<const char*>(frame_p) + sizeof(ConflictProfilingInternal::Frames::WNameData);
-            data.m_name = std::string(chars_p, chars_p + frame_p->m_numChars);
-            return data;
+            auto str = std::string(chars_p, chars_p + frame_p->m_numChars);            
+            const auto key_o = translator.GetUniqueNameKey (frame_p->m_name, str);
+            if (key_o)
+            {
+               auto data = WName ();
+               data.m_name = std::move (str);
+               data.m_key = *key_o;
+               return data;
+            }
+            else
+            {
+               return boost::none;
+            }
          }
 
          constexpr auto defaultBufferSize = size_t (1024);
@@ -569,8 +587,14 @@ namespace WSTM
 
       WDataProcessor::WDataProcessor (std::istream& input):
          m_input (input),
+         m_readingNames (true),
          m_buffer (defaultBufferSize)
-      {}
+      {
+         auto namePos = std::streamoff (0);
+         m_input.read (reinterpret_cast<char*>(&namePos), sizeof(namePos));
+         m_namePos = namePos;
+         m_input.seekg (m_namePos);
+      }
 
       namespace
       {
@@ -588,6 +612,8 @@ namespace WSTM
                return sizeof (Frames::WTransaction);
         
             case Frames::FrameType::nameData:
+               //shouldn't get here, we handle name data differently
+               assert (false);
                return sizeof (Frames::WNameData);
 
             default:
@@ -615,6 +641,8 @@ namespace WSTM
          
             case Frames::FrameType::nameData:
             {
+               //shouldn't get here, we handle name data differently
+               assert (false);
                const auto frame_p = reinterpret_cast<const Frames::WNameData*>(data_p);
                return sizeof (Frames::WNameData) + frame_p->m_numChars;
             }
@@ -629,72 +657,126 @@ namespace WSTM
       
       }
 
-      boost::optional<WData> CheckEOF (std::istream& input)
-      {
-         if (input.eof ())
-         {
-            return boost::none;
-         }
-         else
-         {
-            throw WReadError ();
-         }
-      }
-   
       boost::optional<WData> WDataProcessor::NextDataItem ()
       {
          using namespace  ConflictProfilingInternal;
-      
-         if (m_input.eof ())
-         {
-            return boost::none;
-         }
 
-         if (!m_input.read (reinterpret_cast<char*>(m_buffer.data ()), sizeof(Frames::WFrameHeader)))
+         if (m_readingNames)
          {
-            return CheckEOF (m_input);
-         }
+            auto CheckEOF = [&]()
+               {
+                  if (m_input.eof ())
+                  {
+                     m_readingNames = false;
+                     m_input.clear ();
+                     //seek back to just past the name offset at start of file
+                     m_input.seekg (sizeof(std::streamoff));
+                     const auto pos = m_input.tellg ();
+                     WSTM::Internal::MaybeUnused (pos);
+                     return NextDataItem ();
+                  }
+                  else
+                  {
+                     throw WReadError ();
+                  }
+               };
 
-         const auto frameSize = GetFrameSize (m_buffer.data ());
-         if (!m_input.read (reinterpret_cast<char*>(m_buffer.data ()) + sizeof(Frames::WFrameHeader), frameSize - sizeof(Frames::WFrameHeader)))
-         {
-            return CheckEOF (m_input);
-         }
-
-         const auto totalSize = GetTotalSize (m_buffer.data ());
-         if (totalSize != frameSize)
-         {
-            if (totalSize > m_buffer.size ())
+            assert (m_buffer.size () >= sizeof(Frames::WNameData));
+            auto name_o = boost::optional<WName>();
+            while (!name_o)
             {
-               m_buffer.resize (totalSize);
+               if (!m_input.read (reinterpret_cast<char*>(m_buffer.data ()), sizeof(Frames::WNameData)))
+               {
+                  return CheckEOF ();
+               }
+               auto name_p = reinterpret_cast<const Frames::WNameData*>(m_buffer.data ());
+               if (name_p->m_type != Frames::FrameType::nameData)
+               {
+                  throw WReadError ();
+               }
+
+               const auto frameSize = sizeof(Frames::WNameData) + name_p->m_numChars;
+               if (m_buffer.size () < frameSize)
+               {
+                  m_buffer.resize (frameSize);
+                  name_p = reinterpret_cast<const Frames::WNameData*>(m_buffer.data ());
+               }
+               if (!m_input.read (reinterpret_cast<char*>(m_buffer.data ()) + sizeof(Frames::WNameData), frameSize - sizeof(Frames::WNameData)))
+               {
+                  return CheckEOF ();
+               }
+
+               name_o = ConvertNameData (m_translator, name_p);
+            }
+            
+            return *name_o;            
+         }
+         else
+         {
+            static auto count = 0;
+            ++count;
+            
+            const auto curPos = m_input.tellg ();
+            if (curPos >= m_namePos)
+            {
+               return boost::none;
             }
 
-            if (!m_input.read (reinterpret_cast<char*>(m_buffer.data ()) + frameSize, totalSize - frameSize))
+            assert (m_buffer.size () >= sizeof(Frames::WFrameHeader));
+            if (!m_input.read (reinterpret_cast<char*>(m_buffer.data ()), sizeof(Frames::WFrameHeader)))
             {
-               return CheckEOF (m_input);
+               throw WReadError ();
             }
-         }
+            auto header_p = reinterpret_cast<const Frames::WFrameHeader*>(m_buffer.data ());
+            if (header_p->m_type == Frames::FrameType::nameData)
+            {
+               throw WReadError ();
+            }
+
+            const auto frameSize = GetFrameSize (m_buffer.data ());
+            if (!m_input.read (reinterpret_cast<char*>(m_buffer.data ()) + sizeof(Frames::WFrameHeader), frameSize - sizeof(Frames::WFrameHeader)))
+            {
+               throw WReadError ();
+            }
+
+            const auto totalSize = GetTotalSize (m_buffer.data ());
+            if (totalSize != frameSize)
+            {
+               if (totalSize > m_buffer.size ())
+               {
+                  m_buffer.resize (totalSize);
+                  header_p = reinterpret_cast<const Frames::WFrameHeader*>(m_buffer.data ());
+               }
+
+               if (!m_input.read (reinterpret_cast<char*>(m_buffer.data ()) + frameSize, totalSize - frameSize))
+               {
+                  throw WReadError ();
+               }
+            }
       
-         const auto header_p = reinterpret_cast<const Frames::WFrameHeader*>(m_buffer.data ());
-         switch(header_p->m_type)
-         {
-         case Frames::FrameType::varName:
-            return ConvertVarName (m_translator, header_p);
+            switch(header_p->m_type)
+            {
+            case Frames::FrameType::varName:
+               return ConvertVarName (m_translator, header_p);
         
-         case Frames::FrameType::commit:
-            return ConvertCommit (m_translator, header_p);
+            case Frames::FrameType::commit:
+               return ConvertCommit (m_translator, header_p);
         
-         case Frames::FrameType::conflict:
-            return ConvertConflict (m_translator, header_p);
+            case Frames::FrameType::conflict:
+               return ConvertConflict (m_translator, header_p);
         
-         case Frames::FrameType::nameData:
-            return ConvertNameData (m_translator, header_p);
+            case Frames::FrameType::nameData:
+               //we shouldn't get here
+               assert (false);
+               throw WReadError ();
          
-         default:
-            //if we get here a new frame type was added but not handled here
-            assert (false);
-            return boost::none;
+            default:
+               //if we get here a new frame type was added but not handled here
+               assert (false);
+               return boost::none;
+            }
          }
+         
       }
 
       WDataProcessor::WPtrTranslator::WPtrTranslator ():
@@ -715,9 +797,7 @@ namespace WSTM
             else
             {
                m_varIds[var_p] = m_nextVarId;
-               auto id = m_nextVarId;
-               ++m_nextVarId;
-               return id;
+               return m_nextVarId++;
             }
          }
          else
@@ -725,7 +805,32 @@ namespace WSTM
             return -1;
          }
       }
-         
+
+      boost::optional<NameKey> WDataProcessor::WPtrTranslator::GetUniqueNameKey (const void* name_p, const std::string& str)
+      {
+         //this should only be used when reading WNameData objects which won't have null name_p
+         assert (name_p != nullptr);
+         if (name_p != nullptr)
+         {
+            const auto it = m_uniqueNames.find (str);
+            if (it != std::end (m_uniqueNames))
+            {
+               m_nameKeys[name_p] = it->second;
+               return boost::none;
+            }
+            else
+            {
+               m_uniqueNames[str] = m_nextNameKey;
+               m_nameKeys[name_p] = m_nextNameKey;
+               return m_nextNameKey++;
+            }
+         }
+         else
+         {
+            return -1;
+         }
+      }
+
       NameKey WDataProcessor::WPtrTranslator::GetNameKey (const void* name_p)
       {
          if (name_p != nullptr)
@@ -737,10 +842,9 @@ namespace WSTM
             }
             else
             {
-               m_nameKeys[name_p] = m_nextNameKey;
-               auto id = m_nextNameKey;
-               ++m_nextNameKey;
-               return id;
+               //all the name keys for which we have strings were set up when we read the names
+               assert (false);
+               return -1;
             }
          }
          else
@@ -759,9 +863,7 @@ namespace WSTM
          else
          {
             m_threadIds[tid] = m_nextThreadId;
-            auto id = m_nextThreadId;
-            ++m_nextThreadId;
-            return id;
+            return m_nextThreadId++;
          }
       }
 
