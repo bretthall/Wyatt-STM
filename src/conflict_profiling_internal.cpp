@@ -532,6 +532,7 @@ namespace WSTM
             data.m_end = frame_p->m_end;
             data.m_file = translator.GetNameKey (frame_p->m_file);
             data.m_line = frame_p->m_line;
+            data.m_id = translator.GetTransactionId (data.m_file, data.m_line);
             auto var_p = reinterpret_cast<const void* const*>(reinterpret_cast<const uint8_t*>(frame_p) + sizeof(ConflictProfilingInternal::Frames::WTransaction));
             data.m_got = std::vector<VarId>(frame_p->m_numVars);
             std::transform (var_p, var_p + frame_p->m_numVars,
@@ -552,6 +553,7 @@ namespace WSTM
             data.m_end = frame_p->m_end;
             data.m_file = translator.GetNameKey (frame_p->m_file);
             data.m_line = frame_p->m_line;
+            data.m_id = translator.GetTransactionId (data.m_file, data.m_line);
             auto var_p = reinterpret_cast<const void* const*>(reinterpret_cast<const uint8_t*>(frame_p) + sizeof(ConflictProfilingInternal::Frames::WTransaction));
             data.m_set = std::vector<VarId>(frame_p->m_numVars);
             std::transform (var_p, var_p + frame_p->m_numVars,
@@ -782,7 +784,8 @@ namespace WSTM
       WDataProcessor::WPtrTranslator::WPtrTranslator ():
          m_nextVarId (0),
          m_nextNameKey (0),
-         m_nextThreadId (0)
+         m_nextThreadId (0),
+         m_nextTransactionId (0)
       {}
          
       VarId WDataProcessor::WPtrTranslator::GetVarId (const void* var_p)
@@ -864,6 +867,21 @@ namespace WSTM
          {
             m_threadIds[tid] = m_nextThreadId;
             return m_nextThreadId++;
+         }
+      }
+
+      TransactionId WDataProcessor::WPtrTranslator::GetTransactionId (const NameKey filename, const unsigned int line)
+      {
+         const auto key = std::make_pair (filename, line);
+         const auto it = m_transactionIds.find (key);
+         if (it != std::end (m_transactionIds))
+         {
+            return it->second;
+         }
+         else
+         {
+            m_transactionIds[key] = m_nextTransactionId;
+            return m_nextTransactionId++;
          }
       }
 

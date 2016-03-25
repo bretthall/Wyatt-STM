@@ -18,6 +18,7 @@
 #include <istream>
 #include <thread>
 #include <unordered_map>
+#include <map>
 
 namespace WSTM
 {
@@ -32,11 +33,13 @@ namespace WSTM
          NameKey m_name;
       };
 
+      using TransactionId = unsigned int;
       using TimePoint = std::chrono::high_resolution_clock::time_point;
       using ThreadId = unsigned int;
       
       struct WConflict
       {
+         TransactionId m_id;
          NameKey m_transaction;
          ThreadId m_threadId;
          NameKey m_thread;
@@ -50,6 +53,7 @@ namespace WSTM
       
       struct WCommit
       {
+         TransactionId m_id;
          NameKey m_transaction;
          ThreadId m_threadId;
          NameKey m_thread;
@@ -90,6 +94,7 @@ namespace WSTM
             boost::optional<NameKey> GetUniqueNameKey (const void* name_p, const std::string& str);
             NameKey GetNameKey (const void* name_p);
             ThreadId GetThreadId (const std::thread::id id);
+            TransactionId GetTransactionId (const NameKey filename, const unsigned int line);
             
          private:
             VarId m_nextVarId;
@@ -99,6 +104,8 @@ namespace WSTM
             std::unordered_map<std::string, NameKey> m_uniqueNames;
             NameKey m_nextThreadId;
             std::unordered_map<std::thread::id, ThreadId> m_threadIds;
+            TransactionId m_nextTransactionId;
+            std::map<std::pair<NameKey, unsigned int>, TransactionId> m_transactionIds;
          };
 
       private:

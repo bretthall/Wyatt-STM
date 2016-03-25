@@ -25,28 +25,6 @@ using namespace  WSTM::ConflictProfiling;
 #include <fstream>
 #include <map>
 
-struct WTransactionKey
-{
-   NameKey m_file;
-   unsigned int m_line;
-};
-
-bool operator<(const WTransactionKey& k1, const WTransactionKey& k2)
-{
-   if (k1.m_file < k2.m_file)
-   {
-      return true;
-   }
-   else if ((k1.m_file == k2.m_file) && (k1.m_line < k2.m_line))
-   {
-      return true;
-   }
-   else
-   {
-      return false;
-   }
-}
-
 struct WCommitConflictRatio
 {
    unsigned int m_numCommits;
@@ -60,7 +38,7 @@ struct WProfileData : public boost::static_visitor<>
    std::map<TimePoint, WCommit> m_commits;
    std::map<NameKey, std::string> m_names;
    
-   std::map<WTransactionKey, WCommitConflictRatio> m_commitConflictRatios;
+   std::map<TransactionId, WCommitConflictRatio> m_commitConflictRatios;
    
    void operator()(WVarName& item);
    void operator()(WConflict& item);
@@ -78,14 +56,14 @@ void WProfileData::operator()(WConflict& item)
    boost::sort (item.m_got);
    m_conflicts[item.m_end] = std::move (item);
 
-   const auto it = m_commitConflictRatios.find ({item.m_file, item.m_line});
+   const auto it = m_commitConflictRatios.find (item.m_id);
    if (it != std::end (m_commitConflictRatios))
    {
       ++(it->second.m_numConflicts);
    }
    else
    {
-      m_commitConflictRatios[{item.m_file, item.m_line}] = {0, 1};
+      m_commitConflictRatios[item.m_id] = {0, 1};
    }
 }
 
@@ -94,14 +72,14 @@ void WProfileData::operator()(WCommit& item)
    boost::sort (item.m_set);
    m_commits[item.m_end] = std::move (item);
 
-   const auto it = m_commitConflictRatios.find ({item.m_file, item.m_line});
+   const auto it = m_commitConflictRatios.find (item.m_id);
    if (it != std::end (m_commitConflictRatios))
    {
       ++(it->second.m_numCommits);
    }
    else
    {
-      m_commitConflictRatios[{item.m_file, item.m_line}] = {1, 0};
+      m_commitConflictRatios[item.m_id] = {1, 0};
    }
 }
    
@@ -123,7 +101,7 @@ WConflictingTransaction::WConflictingTransaction ():
 
 struct WTransactionConflicts
 {
-   std::map<WTransactionKey, WConflictingTransaction> m_conflicts;
+   std::map<TransactionId, WConflictingTransaction> m_conflicts;
 };
 
 void CleanUpVars (WProfileData& profData)
@@ -194,7 +172,7 @@ auto GetWithDefault (const Map_t& map, const typename Map_t::key_type& key, cons
    }
 }
 
-using ProcessedConflicts = std::map <WTransactionKey, WTransactionConflicts>;
+using ProcessedConflicts = std::map <TransactionId, WTransactionConflicts>;
 
 ProcessedConflicts ProcessConflicts (const WProfileData& profData)
 {
@@ -205,7 +183,7 @@ ProcessedConflicts ProcessConflicts (const WProfileData& profData)
    for (const auto& conflict: profData.m_conflicts)
    {
       const auto conflictIt = GetOrInsert (transactionConflicts,
-                                           {conflict.second.m_file, conflict.second.m_line},
+                                           conflict.second.m_id,
                                            []() {return WTransactionConflicts ();});
       auto commitIt = profData.m_commits.lower_bound (conflict.second.m_start);
       const auto endCommits = profData.m_commits.upper_bound (conflict.second.m_end);
@@ -216,7 +194,7 @@ ProcessedConflicts ProcessConflicts (const WProfileData& profData)
          if (!conflictVars.empty ())
          {
             const auto conTransIt = GetOrInsert (conflictIt->second.m_conflicts,
-                                                 {commitIt->second.m_file, commitIt->second.m_line},
+                                                 commitIt->second.m_id,
                                                  [](){return WConflictingTransaction ();});
             
             ++(conTransIt->second.m_count);
@@ -342,57 +320,84 @@ void Step (const StmtPtr& stmt_p)
    }
 }
 
-void InsertRawConflicts (const DbPtr& db_p, const WProfileData& profData)
+struct WTransactionInfo
 {
-   const auto stmt_p = Prepare (db_p, "INSERT INTO RawConflicts VALUES (?, ?, ?, ?, ?, ?, ?);");
-   const auto gotStmt_p = Prepare (db_p, "INSERT INTO RawConflictVars VALUES (?, ?, ?);");
-   for (const auto& val: profData.m_conflicts)
+   NameKey m_file;
+   unsigned int m_line;
+   NameKey m_name;
+};
+
+using TransactionMap = std::map<TransactionId, WTransactionInfo>;
+
+void InsertTransactions (const DbPtr& db_p, const TransactionMap& transactions)
+{
+   const auto stmt_p = Prepare (db_p, "INSERT INTO Transactions VALUES (?, ?, ?, ?);");
+   for (const auto& trans: transactions)
    {
       Reset (stmt_p);
-      Bind (stmt_p, 1, val.second.m_file);
-      Bind (stmt_p, 2, val.second.m_line);
-      Bind (stmt_p, 3, val.second.m_transaction);
-      Bind (stmt_p, 4, val.second.m_threadId);
-      Bind (stmt_p, 5, val.second.m_thread);
-      Bind (stmt_p, 6, val.second.m_start);
-      Bind (stmt_p, 7, val.second.m_end);
+      Bind (stmt_p, 1, trans.first);
+      Bind (stmt_p, 2, trans.second.m_file);
+      Bind (stmt_p, 3, trans.second.m_line);
+      Bind (stmt_p, 4, trans.second.m_name);
+      Step (stmt_p);
+   }
+}
+
+void InsertRawConflicts (const DbPtr& db_p, const WProfileData& profData, TransactionMap& transactions)
+{
+   const auto stmt_p = Prepare (db_p, "INSERT INTO RawConflicts VALUES (?, ?, ?, ?, ?);");
+   const auto gotStmt_p = Prepare (db_p, "INSERT INTO RawConflictVars VALUES (?, ?);");
+   for (const auto& val: profData.m_conflicts)
+   {
+      if (transactions.find (val.second.m_id) == std::end (transactions))
+      {
+         transactions[val.second.m_id] = {val.second.m_file, val.second.m_line, val.second.m_transaction};
+      }
+
+      Reset (stmt_p);
+      Bind (stmt_p, 1, val.second.m_id);
+      Bind (stmt_p, 2, val.second.m_threadId);
+      Bind (stmt_p, 3, val.second.m_thread);
+      Bind (stmt_p, 4, val.second.m_start);
+      Bind (stmt_p, 5, val.second.m_end);
       Step (stmt_p);
 
       Reset (gotStmt_p);
-      Bind (gotStmt_p, 1, val.second.m_file);
-      Bind (gotStmt_p, 2, val.second.m_line);
+      Bind (gotStmt_p, 1, val.second.m_id);
       for (const auto got_p: val.second.m_got)
       {
          Reset (gotStmt_p);
-         Bind (gotStmt_p, 3, got_p);
+         Bind (gotStmt_p, 2, got_p);
          Step (gotStmt_p);
       }
    }
 }
 
-void InsertRawCommits (const DbPtr& db_p, const WProfileData& profData)
+void InsertRawCommits (const DbPtr& db_p, const WProfileData& profData, TransactionMap& transactions)
 {
-   const auto stmt_p = Prepare (db_p, "INSERT INTO RawCommits VALUES (?, ?, ?, ?, ?, ?, ?);");
-   const auto setStmt_p = Prepare (db_p, "INSERT INTO RawCommitVars VALUES (?, ?, ?);");
+   const auto stmt_p = Prepare (db_p, "INSERT INTO RawCommits VALUES (?, ?, ?, ?, ?);");
+   const auto setStmt_p = Prepare (db_p, "INSERT INTO RawCommitVars VALUES (?, ?);");
    for (const auto& val: profData.m_commits)
    {
+      if (transactions.find (val.second.m_id) == std::end (transactions))
+      {
+         transactions[val.second.m_id] = {val.second.m_file, val.second.m_line, val.second.m_transaction};
+      }
+
       Reset (stmt_p);
-      Bind (stmt_p, 1, val.second.m_file);
-      Bind (stmt_p, 2, val.second.m_line);
-      Bind (stmt_p, 3, val.second.m_transaction);
-      Bind (stmt_p, 4, val.second.m_threadId);
-      Bind (stmt_p, 5, val.second.m_thread);
-      Bind (stmt_p, 6, val.second.m_start);
-      Bind (stmt_p, 7, val.second.m_end);
+      Bind (stmt_p, 1, val.second.m_id);
+      Bind (stmt_p, 2, val.second.m_threadId);
+      Bind (stmt_p, 3, val.second.m_thread);
+      Bind (stmt_p, 4, val.second.m_start);
+      Bind (stmt_p, 5, val.second.m_end);
       Step (stmt_p);
 
       Reset (setStmt_p);
-      Bind (setStmt_p, 1, val.second.m_file);
-      Bind (setStmt_p, 2, val.second.m_line);
+      Bind (setStmt_p, 1, val.second.m_id);
       for (const auto set_p: val.second.m_set)
       {
          Reset (setStmt_p);
-         Bind (setStmt_p, 3, set_p);
+         Bind (setStmt_p, 2, set_p);
          Step (setStmt_p);
       }
    }
@@ -413,19 +418,18 @@ void InsertNames (const DbPtr& db_p, const WProfileData& profData)
 
 void InsertCommitConflictRatios (const DbPtr& db_p, const WProfileData& profData)
 {
-   const auto stmt_p = Prepare (db_p, "INSERT INTO CommitConflictRatios_ VALUES (?, ?, ?, ?, ?, ?);");
+   const auto stmt_p = Prepare (db_p, "INSERT INTO CommitConflictRatios_ VALUES (?, ?, ?, ?, ?);");
    
    for (const auto& val: profData.m_commitConflictRatios)
    {
       Reset (stmt_p);
-      Bind (stmt_p, 1, val.first.m_file);
-      Bind (stmt_p, 2, val.first.m_line);
+      Bind (stmt_p, 1, val.first);
       const auto total = val.second.m_numCommits + val.second.m_numConflicts;
-      Bind (stmt_p, 3, total);
-      Bind (stmt_p, 4, val.second.m_numCommits);
-      Bind (stmt_p, 5, val.second.m_numConflicts);
+      Bind (stmt_p, 2, total);
+      Bind (stmt_p, 3, val.second.m_numCommits);
+      Bind (stmt_p, 4, val.second.m_numConflicts);
       const auto ratio = 100.0*val.second.m_numConflicts/total;
-      Bind (stmt_p, 6, ratio);
+      Bind (stmt_p, 5, ratio);
       Step (stmt_p);
    }
    
@@ -433,21 +437,19 @@ void InsertCommitConflictRatios (const DbPtr& db_p, const WProfileData& profData
 
 void InsertConflictingTransactions (const DbPtr& db_p, const ProcessedConflicts& conflicts)
 {
-   const auto stmt_p = Prepare (db_p, "INSERT INTO ConflictingTransactions_ VALUES (?, ?, ?, ?, ?, ?);");
+   const auto stmt_p = Prepare (db_p, "INSERT INTO ConflictingTransactions_ VALUES (?, ?, ?, ?);");
    const auto varStmt_p = Prepare (db_p, "INSERT INTO ConflictingTransactionVars_ VALUES (?, ?);");
    auto conId = unsigned int (0);
    for (const auto& conflictee: conflicts)
    {
       Reset (stmt_p);
-      Bind (stmt_p, 2, conflictee.first.m_file);
-      Bind (stmt_p, 3, conflictee.first.m_line);
+      Bind (stmt_p, 2, conflictee.first);
       for (const auto& conflicter: conflictee.second.m_conflicts)
       {
          Reset (stmt_p);
          Bind (stmt_p, 1, conId);
-         Bind (stmt_p, 4, conflicter.first.m_file);
-         Bind (stmt_p, 5, conflicter.first.m_line);
-         Bind (stmt_p, 6, conflicter.second.m_count);
+         Bind (stmt_p, 3, conflicter.first);
+         Bind (stmt_p, 4, conflicter.second.m_count);
          Step (stmt_p);
 
          Reset (varStmt_p);
@@ -513,44 +515,59 @@ boost::optional<std::string> WriteResults (const char* filename, const WProfileD
       };
    try
    {
-      CreateTable ("RawConflicts (File, Line, NameKey, ThreadId, ThreadNameKey, Start, End)");
-      CreateIndex ("RawConflicts_File_Line ON RawConflicts (File, Line)");
-      CreateTable ("RawConflictVars (File, Line, VarNameKey)");
-      CreateIndex ("RawConflictVars_File_Line ON RawConflictVars (File, Line)");
-      CreateTable ("RawCommits (File, Line, NameKey, ThreadId, ThreadNameKey, Start, End)");
-      CreateIndex ("RawCommits_File_Line ON RawCommits (File, Line)");
-      CreateTable ("RawCommitVars (File, Line, VarNameKey)");
-      CreateIndex ("RawCommitVars_File_Line ON RawCommitVars (File, Line)");
+      CreateTable ("Transactions (TxnId INTEGER PRIMARY KEY, File, Line, NameKey)");
+      
+      CreateTable ("RawConflicts (TxnId, ThreadId, ThreadNameKey, Start, End)");
+      CreateIndex ("RawConflicts_TxnId ON RawConflicts (TxnId)");
+
+      CreateTable ("RawConflictVars (TxnId, VarNameKey)");
+      CreateIndex ("RawConflictVars_TxnId ON RawConflictVars (TxnId)");
+
+      CreateTable ("RawCommits (TxnId, ThreadId, ThreadNameKey, Start, End)");
+      CreateIndex ("RawCommits_TxnId ON RawCommits (TxnId)");
+
+      CreateTable ("RawCommitVars (TxnId, VarNameKey)");
+      CreateIndex ("RawCommitVars_TxnId ON RawCommitVars (TxnId)");
+
       CreateTable ("Names (NameKey, Name)");
       CreateIndex ("Names_NameKey ON Names (NameKey)");
-      CreateTable ("CommitConflictRatios_ (File, Line, TotalAttempts, Commits, Conflicts, PercentConflicts)");
-      CreateIndex ("CommitConflictRatios_File_Line ON CommitConflictRatios_ (File, Line)");
+
+      CreateTable ("CommitConflictRatios_ (TxnId, TotalAttempts, Commits, Conflicts, PercentConflicts)");
+      CreateIndex ("CommitConflictRatios_TxnId ON CommitConflictRatios_ (TxnId)");
       RunSql ("CREATE VIEW CommitConflictRatios AS\n"
               "SELECT\n"
+              "   CommitConflictRatios_.TxnId,\n"
               "   Names.Name AS Filename,\n"
-              "   CommitConflictRatios_.Line,\n"
+              "   Transactions.Line,\n"
               "   CommitConflictRatios_.TotalAttempts,\n"
               "   CommitConflictRatios_.Commits,\n"
               "   CommitConflictRatios_.Conflicts,\n"
               "   CommitConflictRatios_.PercentConflicts\n"
               "FROM\n"
               "   CommitConflictRatios_\n"
-              "   JOIN RawCommits ON RawCommits.File == CommitConflictRatios_.File AND RawCommits.Line == CommitConflictRatios_.Line\n"
-              "   LEFT JOIN Names ON RawCommits.File==Names.NameKey;");
-      CreateTable ("ConflictingTransactions_ (ConId, File, Line, ConFile, ConLine, Count)");
-      CreateIndex ("ConflictingTransactions_File_Line ON ConflictingTransactions_ (File, Line)");
+              "   JOIN Transactions ON CommitConflictRatios_.TxnId==Transactions.TxnId\n"
+              "   LEFT JOIN Names ON Transactions.File==Names.NameKey;");
+
+      CreateTable ("ConflictingTransactions_ (ConId INTEGER PRIMAY KEY, TxnId, ConTxnId, Count)");
+      CreateIndex ("ConflictingTransactions_TxnId ON ConflictingTransactions_ (TxnId)");
+      CreateIndex ("ConflictingTransactions_ConTxnId ON ConflictingTransactions_ (ConTxnId)");
       RunSql ("CREATE VIEW ConflictingTransactions AS\n"
               "SELECT\n"
               "   ConflictingTransactions_.ConId,\n"
-              "   N1.Name as File,\n"
-              "   ConflictingTransactions_.Line,\n"
-              "   N2.Name as ConFile,\n"
-              "   ConflictingTransactions_.ConLine,\n"
+              "   ConflictingTransactions_.TxnId,\n"
+              "   N.Name AS File,\n"
+              "   T.Line,\n"
+              "   ConflictingTransactions_.ConTxnId,\n"
+              "   NCon.Name AS ConFile,\n"
+              "   TCon.Line AS ConLine,\n"
               "   ConflictingTransactions_.Count\n"
               "FROM\n"
               "   ConflictingTransactions_\n"
-              "   LEFT JOIN Names AS N1 ON ConflictingTransactions_.File==N1.NameKey\n"
-              "   LEFT JOIN Names AS N2 ON ConflictingTransactions_.ConFile==N2.NameKey;");
+              "   JOIN Transactions AS T ON ConflictingTransactions_.TxnId==T.TxnId\n"
+              "   JOIN Names AS N ON T.File==N.NameKey\n"
+              "   JOIN Transactions AS TCon ON ConflictingTransactions_.ConTxnId==TCon.TxnId\n"
+              "   JOIN Names AS NCon ON TCon.File==NCon.NameKey;");
+
       CreateTable ("ConflictingTransactionVars_ (ConId, VarNameKey)");
       CreateIndex ("ConflictingTransactionVars_ConId ON ConflictingTransactionVars_ (ConId)");
       RunSql ("CREATE VIEW ConflictingTransactionVars AS\n"
@@ -562,8 +579,10 @@ boost::optional<std::string> WriteResults (const char* filename, const WProfileD
               "   LEFT JOIN Names ON ConflictingTransactionVars_.VarNameKey==Names.NameKey;");
       
       RunSql ("BEGIN TRANSACTION;");
-      InsertRawConflicts (dbPtr_p, profData);
-      InsertRawCommits (dbPtr_p, profData);
+      auto transactions = TransactionMap ();
+      InsertRawConflicts (dbPtr_p, profData, transactions);
+      InsertRawCommits (dbPtr_p, profData, transactions);
+      InsertTransactions (dbPtr_p, transactions);
       InsertNames (dbPtr_p, profData);
       InsertCommitConflictRatios (dbPtr_p, profData);
       InsertConflictingTransactions (dbPtr_p, conflicts);
