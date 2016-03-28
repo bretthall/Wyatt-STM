@@ -537,7 +537,8 @@ boost::optional<std::string> WriteResults (const char* filename, const WProfileD
       RunSql ("CREATE VIEW CommitConflictRatios AS\n"
               "SELECT\n"
               "   CommitConflictRatios_.TxnId,\n"
-              "   Names.Name AS Filename,\n"
+              "   NT.Name AS TxnName,\n"
+              "   NN.Name AS Filename,\n"
               "   Transactions.Line,\n"
               "   CommitConflictRatios_.TotalAttempts,\n"
               "   CommitConflictRatios_.Commits,\n"
@@ -546,7 +547,8 @@ boost::optional<std::string> WriteResults (const char* filename, const WProfileD
               "FROM\n"
               "   CommitConflictRatios_\n"
               "   JOIN Transactions ON CommitConflictRatios_.TxnId==Transactions.TxnId\n"
-              "   LEFT JOIN Names ON Transactions.File==Names.NameKey;");
+              "   LEFT JOIN Names AS NT ON Transactions.NameKey==NT.NameKey\n"
+              "   LEFT JOIN Names AS NN ON Transactions.File==NN.NameKey;");
 
       CreateTable ("ConflictingTransactions_ (ConId INTEGER PRIMAY KEY, TxnId, ConTxnId, Count)");
       CreateIndex ("ConflictingTransactions_TxnId ON ConflictingTransactions_ (TxnId)");
@@ -555,19 +557,22 @@ boost::optional<std::string> WriteResults (const char* filename, const WProfileD
               "SELECT\n"
               "   ConflictingTransactions_.ConId,\n"
               "   ConflictingTransactions_.TxnId,\n"
-              "   N.Name AS File,\n"
+              "   NT.Name AS TxnName,\n"
+              "   NF.Name AS File,\n"
               "   T.Line,\n"
               "   ConflictingTransactions_.ConTxnId,\n"
-              "   NCon.Name AS ConFile,\n"
+              "   NConT.Name AS ConTxnName,\n"
+              "   NConF.Name AS ConFile,\n"
               "   TCon.Line AS ConLine,\n"
               "   ConflictingTransactions_.Count\n"
               "FROM\n"
               "   ConflictingTransactions_\n"
               "   JOIN Transactions AS T ON ConflictingTransactions_.TxnId==T.TxnId\n"
-              "   JOIN Names AS N ON T.File==N.NameKey\n"
+              "   LEFT JOIN Names AS NT ON T.NameKey==NT.NameKey\n"
+              "   JOIN Names AS NF ON T.File==NF.NameKey\n"
               "   JOIN Transactions AS TCon ON ConflictingTransactions_.ConTxnId==TCon.TxnId\n"
-              "   JOIN Names AS NCon ON TCon.File==NCon.NameKey;");
-
+              "   LEFT JOIN Names AS NConT ON TCon.NameKey==NConT.NameKey\n"
+              "   JOIN Names AS NConF ON TCon.File==NConF.NameKey;");
       CreateTable ("ConflictingTransactionVars_ (ConId, VarNameKey)");
       CreateIndex ("ConflictingTransactionVars_ConId ON ConflictingTransactionVars_ (ConId)");
       RunSql ("CREATE VIEW ConflictingTransactionVars AS\n"
