@@ -83,6 +83,7 @@ namespace WSTM
       public:
          WDataProcessor (std::istream& input);
 
+         size_t GetNumItems () const;
          boost::optional<WData> NextDataItem ();
 
          class WPtrTranslator
@@ -110,6 +111,7 @@ namespace WSTM
 
       private:
          std::istream& m_input;
+         size_t m_numItems;
          std::istream::pos_type m_beginPos;
          std::istream::pos_type m_namePos;
          bool m_readingNames;

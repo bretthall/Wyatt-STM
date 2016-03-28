@@ -212,9 +212,11 @@ namespace WSTM
          const auto filename = boost::str (boost::format ("wstm_%1%.profile") % std::chrono::system_clock::to_time_t (std::chrono::system_clock::now ()));
          auto out = std::ofstream (filename, std::ios::out | std::ios::binary);
 
-         //reserve space for the name offset (we need the name offset so that they can be read first
+         //reserve space for the number of records and the name offset (we need the name offset so that they can be read first
          //during processing)
          const auto beginPos = std::streamoff (out.tellp ());
+         auto numRecords = size_t (0);
+         out.write (reinterpret_cast<const char*>(&numRecords), sizeof(numRecords));
          out.write (reinterpret_cast<const char*>(&beginPos), sizeof(beginPos));
          
          auto skipBytes = ptrdiff_t (0);
@@ -232,6 +234,7 @@ namespace WSTM
                bytesLeft -= skipBytes;
                while (data_p < dataEnd_p)
                {
+                  ++numRecords;
                   auto header_p = reinterpret_cast<const Frames::WFrameHeader*>(data_p);
                   names.insert (header_p->m_name);
                   if ((header_p->m_type == Frames::FrameType::commit) || (header_p->m_type == Frames::FrameType::conflict))
@@ -276,11 +279,13 @@ namespace WSTM
                nameData.m_numChars = strlen (name_p);
                out.write (reinterpret_cast<const char*>(&nameData), sizeof(Frames::WNameData));
                out.write (name_p, nameData.m_numChars);
+               ++numRecords;
             }
          }
 
          static_assert (sizeof(namePos) == sizeof(beginPos), "stream position size mismatch");
          out.seekp (beginPos);
+         out.write (reinterpret_cast<const char*>(&numRecords), sizeof(numRecords));
          out.write (reinterpret_cast<const char*>(&namePos), sizeof(namePos));
       }
 
@@ -592,10 +597,17 @@ namespace WSTM
          m_readingNames (true),
          m_buffer (defaultBufferSize)
       {
+         m_input.read (reinterpret_cast<char*>(&m_numItems), sizeof(m_numItems));
          auto namePos = std::streamoff (0);
          m_input.read (reinterpret_cast<char*>(&namePos), sizeof(namePos));
          m_namePos = namePos;
+         m_beginPos = m_input.tellg ();
          m_input.seekg (m_namePos);
+      }
+
+      size_t WDataProcessor::GetNumItems () const
+      {
+         return m_numItems;
       }
 
       namespace
@@ -672,7 +684,7 @@ namespace WSTM
                      m_readingNames = false;
                      m_input.clear ();
                      //seek back to just past the name offset at start of file
-                     m_input.seekg (sizeof(std::streamoff));
+                     m_input.seekg (m_beginPos);
                      const auto pos = m_input.tellg ();
                      WSTM::Internal::MaybeUnused (pos);
                      return NextDataItem ();

@@ -24,6 +24,91 @@ using namespace  WSTM::ConflictProfiling;
 #include <iostream>
 #include <fstream>
 #include <map>
+#include <functional>
+
+class WProgressReport
+{
+public:
+   using DisplayStepFunc = std::function<void ()>;
+   
+   WProgressReport (const unsigned int numSteps, const unsigned int numDisplaySteps, DisplayStepFunc func);
+
+   WProgressReport& operator++();
+   
+private:
+   DisplayStepFunc m_displayFunc;
+   unsigned int m_numSteps;
+   unsigned int m_numDisplaySteps;
+   unsigned int m_curAcc;
+};
+
+WProgressReport::WProgressReport (const unsigned int numSteps, const unsigned int numDisplaySteps, DisplayStepFunc func):
+   m_displayFunc (std::move (func)),
+   m_numSteps (numSteps),
+   m_numDisplaySteps (numDisplaySteps),
+   m_curAcc (0)
+{
+   assert (m_displayFunc);
+}
+
+WProgressReport& WProgressReport::operator++()
+{
+   m_curAcc += m_numDisplaySteps;
+   while (m_curAcc >= m_numSteps)
+   {
+      m_displayFunc ();
+      m_curAcc -= m_numSteps;
+   }
+   return *this;
+}
+
+auto DisplayPercentageDone (const unsigned int dotInterval, const unsigned int valueInterval)
+{
+   //things will look funny if these assertions fail
+   assert ((valueInterval % dotInterval) == 0);
+   assert (valueInterval > dotInterval);
+   
+   std:: cout << "0%";
+   auto dotCounter = unsigned int(0);
+   auto valueCounter = unsigned int(0);
+   auto pctDone = unsigned int (0);
+   return [pctDone, dotCounter, dotInterval, valueCounter, valueInterval] () mutable
+   {
+      ++pctDone;
+      
+      ++dotCounter;
+      if (dotCounter == dotInterval)
+      {
+         std::cout << '.';
+         dotCounter = 0;
+      }
+
+      ++valueCounter;
+      if (valueCounter == valueInterval)
+      {
+         std::cout << pctDone << '%';
+         valueCounter = 0;
+      }
+   };
+}
+
+class WSubProgressReportFactory
+{
+public:
+   WSubProgressReportFactory (const unsigned int numSuperSteps, WProgressReport& superReport):
+      m_numSuperSteps (numSuperSteps),
+      m_superReportIncrement ([&superReport]() {++superReport;})
+   {}
+
+   WProgressReport operator()(const unsigned int numSubSteps) const
+   {
+      return WProgressReport (numSubSteps, m_numSuperSteps, m_superReportIncrement);
+   }
+
+private:
+   unsigned int m_numSuperSteps;
+   WProgressReport::DisplayStepFunc m_superReportIncrement;
+};
 
 struct WCommitConflictRatio
 {
@@ -104,7 +189,7 @@ struct WTransactionConflicts
    std::map<TransactionId, WConflictingTransaction> m_conflicts;
 };
 
-void CleanUpVars (WProfileData& profData)
+void CleanUpVars (WProfileData& profData, WSubProgressReportFactory&& progressFactory)
 {
    //remove variables from got/set lists if they aren't named. Unnamed variables in the lists just
    //cause confusion as there's no way to connect them from on instance of a transaction to
@@ -123,7 +208,8 @@ void CleanUpVars (WProfileData& profData)
          }
       };
    const auto HasName = [](const VarId v) {return (v != -1);};
-   
+
+   auto progress = progressFactory (profData.m_conflicts.size () + profData.m_commits.size ());
    for (auto& conflict: profData.m_conflicts)
    {
       auto newGot = std::vector<VarId>();
@@ -133,6 +219,7 @@ void CleanUpVars (WProfileData& profData)
                    | boost::adaptors::filtered (HasName),
                    std::back_inserter (newGot));
       conflict.second.m_got = std::move (newGot);
+      ++progress;
    }
 
    for (auto& commit: profData.m_commits)
@@ -144,6 +231,7 @@ void CleanUpVars (WProfileData& profData)
                    | boost::adaptors::filtered (HasName),
                    std::back_inserter (newSet));
       commit.second.m_set = std::move (newSet);
+      ++progress;
    }
 }
 
@@ -174,12 +262,13 @@ auto GetWithDefault (const Map_t& map, const typename Map_t::key_type& key, cons
 
 using ProcessedConflicts = std::map <TransactionId, WTransactionConflicts>;
 
-ProcessedConflicts ProcessConflicts (const WProfileData& profData)
+ProcessedConflicts ProcessConflicts (const WProfileData& profData, WSubProgressReportFactory&& progressFactory)
 {
    ProcessedConflicts transactionConflicts;
    auto conflictVars = std::vector<VarId>();
    auto conflictVarsUnion = std::vector<NameKey>();
    const auto VarIdToNameKey = [&](VarId id) {return GetWithDefault (profData.m_varNames, id, -1);};
+   auto progress = progressFactory (profData.m_conflicts.size ());
    for (const auto& conflict: profData.m_conflicts)
    {
       const auto conflictIt = GetOrInsert (transactionConflicts,
@@ -206,6 +295,7 @@ ProcessedConflicts ProcessConflicts (const WProfileData& profData)
          
          ++commitIt;
       }
+      ++progress;
    }
    return transactionConflicts;
 }
@@ -329,9 +419,10 @@ struct WTransactionInfo
 
 using TransactionMap = std::map<TransactionId, WTransactionInfo>;
 
-void InsertTransactions (const DbPtr& db_p, const TransactionMap& transactions)
+void InsertTransactions (const DbPtr& db_p, const TransactionMap& transactions, WSubProgressReportFactory&& progressFactory)
 {
    const auto stmt_p = Prepare (db_p, "INSERT INTO Transactions VALUES (?, ?, ?, ?);");
+   auto progress = progressFactory (transactions.size ());
    for (const auto& trans: transactions)
    {
       Reset (stmt_p);
@@ -340,13 +431,16 @@ void InsertTransactions (const DbPtr& db_p, const TransactionMap& transactions)
       Bind (stmt_p, 3, trans.second.m_line);
       Bind (stmt_p, 4, trans.second.m_name);
       Step (stmt_p);
+
+      ++progress;
    }
 }
 
-void InsertRawConflicts (const DbPtr& db_p, const WProfileData& profData, TransactionMap& transactions)
+void InsertRawConflicts (const DbPtr& db_p, const WProfileData& profData, TransactionMap& transactions, WSubProgressReportFactory&& progressFactory)
 {
    const auto stmt_p = Prepare (db_p, "INSERT INTO RawConflicts VALUES (?, ?, ?, ?, ?);");
    const auto gotStmt_p = Prepare (db_p, "INSERT INTO RawConflictVars VALUES (?, ?);");
+   auto progress = progressFactory (profData.m_conflicts.size ());
    for (const auto& val: profData.m_conflicts)
    {
       if (transactions.find (val.second.m_id) == std::end (transactions))
@@ -370,13 +464,16 @@ void InsertRawConflicts (const DbPtr& db_p, const WProfileData& profData, Transa
          Bind (gotStmt_p, 2, got_p);
          Step (gotStmt_p);
       }
+
+      ++progress;
    }
 }
 
-void InsertRawCommits (const DbPtr& db_p, const WProfileData& profData, TransactionMap& transactions)
+void InsertRawCommits (const DbPtr& db_p, const WProfileData& profData, TransactionMap& transactions, WSubProgressReportFactory&& progressFactory)
 {
    const auto stmt_p = Prepare (db_p, "INSERT INTO RawCommits VALUES (?, ?, ?, ?, ?);");
    const auto setStmt_p = Prepare (db_p, "INSERT INTO RawCommitVars VALUES (?, ?);");
+   auto progress = progressFactory (profData.m_commits.size ());
    for (const auto& val: profData.m_commits)
    {
       if (transactions.find (val.second.m_id) == std::end (transactions))
@@ -400,26 +497,31 @@ void InsertRawCommits (const DbPtr& db_p, const WProfileData& profData, Transact
          Bind (setStmt_p, 2, set_p);
          Step (setStmt_p);
       }
+
+      ++progress;
    }
 }
 
-void InsertNames (const DbPtr& db_p, const WProfileData& profData)
+void InsertNames (const DbPtr& db_p, const WProfileData& profData, WSubProgressReportFactory&& progressFactory)
 {
    const auto stmt_p = Prepare (db_p, "INSERT INTO Names VALUES (?, ?);");
-   
+   auto progress = progressFactory (profData.m_names.size ());
+
    for (const auto& val: profData.m_names)
    {
       Reset (stmt_p);
       Bind (stmt_p, 1, val.first);
       Bind (stmt_p, 2, val.second);
       Step (stmt_p);
+
+      ++progress;
    }
 }
 
-void InsertCommitConflictRatios (const DbPtr& db_p, const WProfileData& profData)
+void InsertCommitConflictRatios (const DbPtr& db_p, const WProfileData& profData, WSubProgressReportFactory&& progressFactory)
 {
    const auto stmt_p = Prepare (db_p, "INSERT INTO CommitConflictRatios_ VALUES (?, ?, ?, ?, ?);");
-   
+   auto progress = progressFactory (profData.m_commitConflictRatios.size ());
    for (const auto& val: profData.m_commitConflictRatios)
    {
       Reset (stmt_p);
@@ -431,15 +533,17 @@ void InsertCommitConflictRatios (const DbPtr& db_p, const WProfileData& profData
       const auto ratio = 100.0*val.second.m_numConflicts/total;
       Bind (stmt_p, 5, ratio);
       Step (stmt_p);
-   }
-   
+
+      ++progress;
+   }   
 }
 
-void InsertConflictingTransactions (const DbPtr& db_p, const ProcessedConflicts& conflicts)
+void InsertConflictingTransactions (const DbPtr& db_p, const ProcessedConflicts& conflicts, WSubProgressReportFactory&& progressFactory)
 {
    const auto stmt_p = Prepare (db_p, "INSERT INTO ConflictingTransactions_ VALUES (?, ?, ?, ?);");
    const auto varStmt_p = Prepare (db_p, "INSERT INTO ConflictingTransactionVars_ VALUES (?, ?);");
    auto conId = unsigned int (0);
+   auto progress = progressFactory (conflicts.size ());
    for (const auto& conflictee: conflicts)
    {
       Reset (stmt_p);
@@ -463,6 +567,8 @@ void InsertConflictingTransactions (const DbPtr& db_p, const ProcessedConflicts&
          
          ++conId;
       }
+      
+      ++progress;
    }
 
 }
@@ -584,13 +690,14 @@ boost::optional<std::string> WriteResults (const char* filename, const WProfileD
               "   LEFT JOIN Names ON ConflictingTransactionVars_.VarNameKey==Names.NameKey;");
       
       RunSql ("BEGIN TRANSACTION;");
+      auto readProgress = WProgressReport (6000, 100, DisplayPercentageDone (5, 20));
       auto transactions = TransactionMap ();
-      InsertRawConflicts (dbPtr_p, profData, transactions);
-      InsertRawCommits (dbPtr_p, profData, transactions);
-      InsertTransactions (dbPtr_p, transactions);
-      InsertNames (dbPtr_p, profData);
-      InsertCommitConflictRatios (dbPtr_p, profData);
-      InsertConflictingTransactions (dbPtr_p, conflicts);
+      InsertRawConflicts (dbPtr_p, profData, transactions, WSubProgressReportFactory (1000, readProgress));
+      InsertRawCommits (dbPtr_p, profData, transactions, WSubProgressReportFactory (1000, readProgress));
+      InsertTransactions (dbPtr_p, transactions, WSubProgressReportFactory (1000, readProgress));
+      InsertNames (dbPtr_p, profData, WSubProgressReportFactory (1000, readProgress));
+      InsertCommitConflictRatios (dbPtr_p, profData, WSubProgressReportFactory (1000, readProgress));
+      InsertConflictingTransactions (dbPtr_p, conflicts, WSubProgressReportFactory (1000, readProgress));
       RunSql ("COMMIT TRANSACTION;");
    }
    catch (WSqlError& err)
@@ -615,18 +722,26 @@ boost::optional<std::string> ProcessFile (const char* filename)
    try
    {
       WDataProcessor proc (file);
+      std::cout << "Reading Data:    ";
+      auto readProgress = WProgressReport (proc.GetNumItems (), 100, DisplayPercentageDone (5, 20));
       while (auto data_o = proc.NextDataItem ())
       {
          boost::apply_visitor (profData, *data_o);
+         ++readProgress;
       }
+      std::cout << std::endl;
    }
    catch(WReadError&)
    {
       return "Error reading from file";
    }
-   CleanUpVars (profData);
-   const auto transactionConflicts = ProcessConflicts (profData);
-
+   std::cout << "Processing:      ";
+   auto procProgress = WProgressReport (1000, 100, DisplayPercentageDone (5, 20));   
+   CleanUpVars (profData, WSubProgressReportFactory (100, procProgress));
+   const auto transactionConflicts = ProcessConflicts (profData, WSubProgressReportFactory (900, procProgress));
+   std::cout << std::endl;
+   
+   std::cout << "Writing Results: ";
    return WriteResults (filename, profData, transactionConflicts);
 }
 
@@ -640,17 +755,13 @@ int main (const int argc, const char** argv)
 
    for (auto i = 1; i < argc; ++i)
    {
-      std::cout << "Processing " << argv[i] << ": ";
+      std::cout << argv[i] << ": " << std::endl;
       if (const auto res_o = ProcessFile (argv[i]))
       {
-         std::cout << "error" << std::endl;
-         std::cout << *res_o << std::endl;
          std::cout << std::endl;
+         std::cout << "error: " << *res_o << std::endl;
       }
-      else
-      {         
-         std::cout << "done" << std::endl;
-      }
+      std::cout << std::endl;
    }
    
    return 0;
