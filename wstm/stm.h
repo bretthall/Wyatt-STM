@@ -958,7 +958,7 @@ namespace WSTM
 #ifdef WSTM_CONFLICT_PROFILING
 
 //we have to use a macro here in order to capture file and line number for profiling
-#define Atomically(op, ...) AtomicallyWithProfiling (__FILE__, __LINE__, op, __VA_ARGS__)
+#define Atomically(op, ...) ::WSTM::AtomicallyWithProfiling (__FILE__, __LINE__, op, __VA_ARGS__)
 
 #else //WSTM_CONFLICT_PROFILING
 

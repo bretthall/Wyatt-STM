@@ -211,52 +211,6 @@ struct WTransactionConflicts
    std::map<TransactionId, WConflictingTransaction> m_conflicts;
 };
 
-void CleanUpVars (WProfileData& profData, WSubProgressReportFactory&& progressFactory)
-{
-   //remove variables from got/set lists if they aren't named. Unnamed variables in the lists just
-   //cause confusion as there's no way to connect them from on instance of a transaction to
-   //another.
-
-   const auto ToNameKey = [&profData](const VarId v)
-      {
-         const auto it = profData.m_varNames.find (v);
-         if (it != std::end (profData.m_varNames))
-         {
-            return it->second;
-         }
-         else
-         {
-            return -1;
-         }
-      };
-   const auto HasName = [](const VarId v) {return (v != -1);};
-
-   auto progress = progressFactory (profData.m_conflicts.size () + profData.m_commits.size ());
-   for (auto& conflict: profData.m_conflicts)
-   {
-      auto newGot = std::vector<VarId>();
-      newGot.reserve (conflict.second.m_got.size ());
-      boost::copy (conflict.second.m_got
-                   | boost::adaptors::transformed (ToNameKey)
-                   | boost::adaptors::filtered (HasName),
-                   std::back_inserter (newGot));
-      conflict.second.m_got = std::move (newGot);
-      ++progress;
-   }
-
-   for (auto& commit: profData.m_commits)
-   {
-      auto newSet = std::vector<VarId>();
-      newSet.reserve (commit.second.m_set.size ());
-      boost::copy (commit.second.m_set
-                   | boost::adaptors::transformed (ToNameKey)
-                   | boost::adaptors::filtered (HasName),
-                   std::back_inserter (newSet));
-      commit.second.m_set = std::move (newSet);
-      ++progress;
-   }
-}
-
 template <typename Map_t, typename Gen_t>
 auto GetOrInsert (Map_t& map, const typename Map_t::key_type& key, Gen_t&& gen)
 {
@@ -320,6 +274,60 @@ ProcessedConflicts ProcessConflicts (const WProfileData& profData, WSubProgressR
       ++progress;
    }
    return transactionConflicts;
+}
+
+void CleanUpVars (WProfileData& profData, ProcessedConflicts& processed, WSubProgressReportFactory&& progressFactory)
+{
+   //remove variables from got/set lists if they aren't named. Unnamed variables in the lists just
+   //cause confusion as there's no way to connect them from on instance of a transaction to
+   //another.
+
+   const auto ToNameKey = [&profData](const VarId v)
+      {
+         const auto it = profData.m_varNames.find (v);
+         if (it != std::end (profData.m_varNames))
+         {
+            return it->second;
+         }
+         else
+         {
+            return -1;
+         }
+      };
+   const auto HasName = [](const VarId v) {return (v != -1);};
+
+   const auto CleanNames = [&](std::vector<VarId>& vars)
+      {
+         auto newVars = std::vector<VarId>();
+         newVars.reserve (vars.size ());
+         boost::copy (vars
+                      | boost::adaptors::transformed (ToNameKey)
+                      | boost::adaptors::filtered (HasName),
+                      std::back_inserter (newVars));
+         vars = std::move (newVars);
+      };
+         
+   auto progress = progressFactory (profData.m_conflicts.size () + profData.m_commits.size () + processed.size ());
+   for (auto& conflict: profData.m_conflicts)
+   {
+      CleanNames (conflict.second.m_got);
+      ++progress;
+   }
+
+   for (auto& commit: profData.m_commits)
+   {
+      CleanNames (commit.second.m_set);
+      ++progress;
+   }
+
+   for (auto& proced: processed)
+   {
+      for (auto& conflict: proced.second.m_conflicts)
+      {
+         CleanNames (conflict.second.m_conflictingVars);
+      }
+      ++progress;
+   }
 }
 
 struct WSqlError
@@ -759,8 +767,8 @@ boost::optional<std::string> ProcessFile (const char* filename)
    }
    std::cout << "Processing:      ";
    auto procProgress = WProgressReport (1000, 100, DisplayPercentageDone (5, 20));   
-   CleanUpVars (profData, WSubProgressReportFactory (100, procProgress));
-   const auto transactionConflicts = ProcessConflicts (profData, WSubProgressReportFactory (900, procProgress));
+   auto transactionConflicts = ProcessConflicts (profData, WSubProgressReportFactory (900, procProgress));
+   CleanUpVars (profData, transactionConflicts, WSubProgressReportFactory (100, procProgress));
    std::cout << std::endl;
    
    std::cout << "Writing Results: ";

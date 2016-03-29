@@ -12,3 +12,4 @@ build64CP
 */#*
 *.profile
 *.sqlite3
+*.csv
