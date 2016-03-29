@@ -39,6 +39,7 @@
 #include <deque>
 #include <thread>
 #include <mutex>
+#include <condition_variable>
 #include <deque>
 #include <iostream>
 #include <fstream>
@@ -138,7 +139,7 @@ auto OutputResults (const unsigned int numVarsRead, const unsigned int numVarsWr
 {
    return [=]()
    {
-      auto out = std::ofstream ("test_output.csv");
+      std::ofstream out ("test_output.csv");
       out << "Result,TxnId,Set,Got,Start,Finish" << std::endl;
 
       std::unique_lock<std::mutex> lock (attemptResultsMutex);
@@ -224,33 +225,33 @@ const auto attemptLimit = 10;
       static WRandom rnd (numVars);                                     \
       auto lastAttempt_o = boost::optional<WAttempt> ();                \
       auto numAttempts = 0;                                             \
-      Atomically ([&](WSTM::WAtomic& at)                                \
-                  {                                                     \
-                     WSTM::ConflictProfiling::NameTransaction (txnName##index); \
-                     if (lastAttempt_o)                                 \
-                     {                                                  \
-                        OutputConflict (*lastAttempt_o);                \
-                     }                                                  \
-                     else                                               \
-                     {                                                  \
-                        lastAttempt_o = WAttempt ();                    \
-                        lastAttempt_o->m_txnIndex = index - 1;          \
-                     }                                                  \
-                     lastAttempt_o->m_start = std::chrono::high_resolution_clock::now (); \
-                     for (auto i = 0u; i < numVarsToWrite; ++i)         \
-                     {                                                  \
-                        lastAttempt_o->m_set[i] = SetAVar (rnd, index, at); \
-                     }                                                  \
-                     if (numAttempts < attemptLimit)                    \
-                     {                                                  \
-                        for (auto i = 0u; i < numVarsToRead; ++i)       \
+      WSTM::Atomically ([&](WSTM::WAtomic& at)                          \
                         {                                               \
-                           lastAttempt_o->m_got[i] = GetAVar (rnd, at); \
-                        }                                               \
-                     }                                                  \
-                     ++numAttempts;                                     \
-                     lastAttempt_o->m_finish = std::chrono::high_resolution_clock::now (); \
-                  });                                                   \
+                           WSTM::ConflictProfiling::NameTransaction (txnName##index); \
+                           if (lastAttempt_o)                           \
+                           {                                            \
+                              OutputConflict (*lastAttempt_o);          \
+                           }                                            \
+                           else                                         \
+                           {                                            \
+                              lastAttempt_o = WAttempt ();              \
+                              lastAttempt_o->m_txnIndex = index - 1;    \
+                           }                                            \
+                           lastAttempt_o->m_start = std::chrono::high_resolution_clock::now (); \
+                           for (auto i = 0u; i < numVarsToWrite; ++i)   \
+                           {                                            \
+                              lastAttempt_o->m_set[i] = SetAVar (rnd, index, at); \
+                           }                                            \
+                           if (numAttempts < attemptLimit)              \
+                           {                                            \
+                              for (auto i = 0u; i < numVarsToRead; ++i) \
+                              {                                         \
+                                 lastAttempt_o->m_got[i] = GetAVar (rnd, at); \
+                              }                                         \
+                           }                                            \
+                           ++numAttempts;                               \
+                           lastAttempt_o->m_finish = std::chrono::high_resolution_clock::now (); \
+                        });                                             \
       OutputCommit (*lastAttempt_o);                                    \
    }//
 
@@ -339,7 +340,6 @@ int main (int argc, const char** argv)
 
    {
       std::lock_guard<std::mutex> lock (attemptResultsMutex);
-      auto now = std::chrono::high_resolution_clock::now ();
       auto stop = WAttempt ();
       stop.m_txnIndex = -1;
       attemptResults.push_back ({CommitOrConflict::conflict, stop});

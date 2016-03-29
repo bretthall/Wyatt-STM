@@ -90,10 +90,10 @@ auto DisplayPercentageDone (const unsigned int dotInterval, const unsigned int v
    assert ((valueInterval % dotInterval) == 0);
    assert (valueInterval > dotInterval);
    
-   std:: cout << "0%";
-   auto dotCounter = unsigned int(0);
-   auto valueCounter = unsigned int(0);
-   auto pctDone = unsigned int (0);
+   std::cout << "0%";
+   auto dotCounter = 0u;
+   auto valueCounter = 0u;
+   auto pctDone = 0u;
    return [pctDone, dotCounter, dotInterval, valueCounter, valueInterval] () mutable
    {
       ++pctDone;
@@ -243,7 +243,6 @@ ProcessedConflicts ProcessConflicts (const WProfileData& profData, WSubProgressR
    ProcessedConflicts transactionConflicts;
    auto conflictVars = std::vector<VarId>();
    auto conflictVarsUnion = std::vector<NameKey>();
-   const auto VarIdToNameKey = [&](VarId id) {return GetWithDefault (profData.m_varNames, id, -1);};
    auto progress = progressFactory (profData.m_conflicts.size ());
    for (const auto& conflict: profData.m_conflicts)
    {
@@ -572,7 +571,7 @@ void InsertConflictingTransactions (const DbPtr& db_p, const ProcessedConflicts&
 {
    const auto stmt_p = Prepare (db_p, "INSERT INTO ConflictingTransactions_ VALUES (?, ?, ?, ?);");
    const auto varStmt_p = Prepare (db_p, "INSERT INTO ConflictingTransactionVars_ VALUES (?, ?);");
-   auto conId = unsigned int (0);
+   auto conId = 0u;
    auto progress = progressFactory (conflicts.size ());
    for (const auto& conflictee: conflicts)
    {
@@ -625,7 +624,7 @@ boost::optional<std::string> WriteResults (const char* filename, const WProfileD
    auto errCode = sqlite3_open (outPath.string ().c_str (), &db_p);
    if (errCode != SQLITE_OK)
    {
-      return sqlite3_errstr (errCode);
+      return std::string (sqlite3_errstr (errCode));
    }
    DbPtr dbPtr_p (db_p);
 
@@ -745,7 +744,7 @@ boost::optional<std::string> ProcessFile (const char* filename)
    std::ifstream file (filename, std::ios::in | std::ios::binary);
    if (!file)
    {
-      return "Couldn't open file";
+      return std::string ("Couldn't open file");
    }
 
    WProfileData profData;
@@ -763,7 +762,7 @@ boost::optional<std::string> ProcessFile (const char* filename)
    }
    catch(WReadError&)
    {
-      return "Error reading from file";
+      return std::string ("Error reading from file");
    }
    std::cout << "Processing:      ";
    auto procProgress = WProgressReport (1000, 100, DisplayPercentageDone (5, 20));   

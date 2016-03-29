@@ -210,7 +210,7 @@ namespace WSTM
          auto names = std::unordered_set<const char*> ();
 
          const auto filename = boost::str (boost::format ("wstm_%1%.profile") % std::chrono::system_clock::to_time_t (std::chrono::system_clock::now ()));
-         auto out = std::ofstream (filename, std::ios::out | std::ios::binary);
+         std::ofstream out (filename, std::ios::out | std::ios::binary);
 
          //reserve space for the number of records and the name offset (we need the name offset so that they can be read first
          //during processing)
@@ -723,7 +723,7 @@ namespace WSTM
                name_o = ConvertNameData (m_translator, name_p);
             }
             
-            return *name_o;            
+            return WData (*name_o);            
          }
          else
          {
@@ -771,13 +771,13 @@ namespace WSTM
             switch(header_p->m_type)
             {
             case Frames::FrameType::varName:
-               return ConvertVarName (m_translator, header_p);
+               return WData (ConvertVarName (m_translator, header_p));
         
             case Frames::FrameType::commit:
-               return ConvertCommit (m_translator, header_p);
+               return WData (ConvertCommit (m_translator, header_p));
         
             case Frames::FrameType::conflict:
-               return ConvertConflict (m_translator, header_p);
+               return WData (ConvertConflict (m_translator, header_p));
         
             case Frames::FrameType::nameData:
                //we shouldn't get here
