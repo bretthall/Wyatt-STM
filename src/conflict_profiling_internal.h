@@ -101,7 +101,7 @@ namespace WSTM
          }
          
       private:
-         std::mutex m_mutex;
+         mutable std::mutex m_mutex;
          std::unique_ptr<WPage> m_firstPage_p;
          WPage* m_lastPage_p;
          size_t m_numThreads;

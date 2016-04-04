@@ -45,6 +45,15 @@
 #include <fstream>
 #include <array>
 
+#ifdef NON_APPLE_CLANG 
+//Clang on linux is missing this
+extern "C" int __cxa_thread_atexit(void (*func)(), void *obj, void *dso_symbol)
+{
+   int __cxa_thread_atexit_impl(void (*)(), void *, void *);
+   return __cxa_thread_atexit_impl(func, obj, dso_symbol);
+}
+#endif //NON_APPLE_CLANG 
+
 constexpr size_t maxThreads = 9;
 const char* threadName1 = "thread1";
 const char* threadName2 = "thread2";
@@ -55,7 +64,7 @@ const char* threadName6 = "thread6";
 const char* threadName7 = "thread7";
 const char* threadName8 = "thread8";
 const char* threadName9 = "thread9";
-std::array<const char*, maxThreads> threadNames = {threadName1, threadName2, threadName3, threadName4, threadName5, threadName6, threadName7, threadName8, threadName9};
+std::array<const char*, maxThreads> threadNames =  {{threadName1, threadName2, threadName3, threadName4, threadName5, threadName6, threadName7, threadName8, threadName9}};
 
 constexpr size_t maxTxns = 9;
 const char* txnName1 = "txn1";
@@ -67,7 +76,7 @@ const char* txnName6 = "txn6";
 const char* txnName7 = "txn7";
 const char* txnName8 = "txn8";
 const char* txnName9 = "txn9";
-std::array<const char*, maxTxns> txnNames = {txnName1, txnName2, txnName3, txnName4, txnName5, txnName6, txnName7, txnName8, txnName9};
+std::array<const char*, maxTxns> txnNames = {{txnName1, txnName2, txnName3, txnName4, txnName5, txnName6, txnName7, txnName8, txnName9}};
 
 constexpr auto maxNumVars = 9;
 
@@ -80,7 +89,7 @@ const char* varName6 = "var6";
 const char* varName7 = "var7";
 const char* varName8 = "var8";
 const char* varName9 = "var9";
-std::array<const char*, maxNumVars> varNames = {varName1, varName2, varName3, varName4, varName5, varName6, varName7, varName8, varName9};
+std::array<const char*, maxNumVars> varNames = {{varName1, varName2, varName3, varName4, varName5, varName6, varName7, varName8, varName9}};
 
 auto var1 = WSTM::WVar<int>(0);
 auto var2 = WSTM::WVar<int>(0);
@@ -91,7 +100,7 @@ auto var6 = WSTM::WVar<int>(0);
 auto var7 = WSTM::WVar<int>(0);
 auto var8 = WSTM::WVar<int>(0);
 auto var9 = WSTM::WVar<int>(0);
-std::array<WSTM::WVar<int>*, maxNumVars> vars = {&var1, &var2, &var3, &var4, &var5, &var6, &var7, &var8, &var9};
+std::array<WSTM::WVar<int>*, maxNumVars> vars = {{&var1, &var2, &var3, &var4, &var5, &var6, &var7, &var8, &var9}};
 
 void NameVars ()
 {
@@ -264,7 +273,7 @@ DEF_TRANSCTION (6);
 DEF_TRANSCTION (7);
 DEF_TRANSCTION (8);
 DEF_TRANSCTION (9);
-std::array<std::function<void (unsigned int, unsigned int, unsigned int)>, maxTxns> txns = {Txn1, Txn2, Txn3, Txn4, Txn5, Txn6, Txn7, Txn8, Txn9};
+std::array<std::function<void (unsigned int, unsigned int, unsigned int)>, maxTxns> txns = {{Txn1, Txn2, Txn3, Txn4, Txn5, Txn6, Txn7, Txn8, Txn9}};
 
 std::thread CreateThread (const int index, const unsigned int numIters, const unsigned int numVars, const unsigned int numVarsToRead, const unsigned int numVarsToWrite)
 {
