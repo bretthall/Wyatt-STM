@@ -276,7 +276,7 @@ namespace WSTM
             if (name_p != nullptr)
             {
                nameData.m_name = name_p;
-               nameData.m_numChars = strlen (name_p);
+               nameData.m_numChars = static_cast<uint32_t>(strlen (name_p));
                out.write (reinterpret_cast<const char*>(&nameData), sizeof(Frames::WNameData));
                out.write (name_p, nameData.m_numChars);
                ++numRecords;

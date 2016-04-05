@@ -53,18 +53,18 @@ class WProgressReport
 public:
    using DisplayStepFunc = std::function<void ()>;
    
-   WProgressReport (const unsigned int numSteps, const unsigned int numDisplaySteps, DisplayStepFunc func);
+   WProgressReport (const size_t numSteps, const size_t numDisplaySteps, DisplayStepFunc func);
 
    WProgressReport& operator++();
    
 private:
    DisplayStepFunc m_displayFunc;
-   unsigned int m_numSteps;
-   unsigned int m_numDisplaySteps;
-   unsigned int m_curAcc;
+   size_t m_numSteps;
+   size_t m_numDisplaySteps;
+   size_t m_curAcc;
 };
 
-WProgressReport::WProgressReport (const unsigned int numSteps, const unsigned int numDisplaySteps, DisplayStepFunc func):
+WProgressReport::WProgressReport (const size_t numSteps, const size_t numDisplaySteps, DisplayStepFunc func):
    m_displayFunc (std::move (func)),
    m_numSteps (numSteps),
    m_numDisplaySteps (numDisplaySteps),
@@ -117,18 +117,18 @@ auto DisplayPercentageDone (const unsigned int dotInterval, const unsigned int v
 class WSubProgressReportFactory
 {
 public:
-   WSubProgressReportFactory (const unsigned int numSuperSteps, WProgressReport& superReport):
+   WSubProgressReportFactory (const size_t numSuperSteps, WProgressReport& superReport):
       m_numSuperSteps (numSuperSteps),
       m_superReportIncrement ([&superReport]() {++superReport;})
    {}
 
-   WProgressReport operator()(const unsigned int numSubSteps) const
+   WProgressReport operator()(const size_t numSubSteps) const
    {
       return WProgressReport (numSubSteps, m_numSuperSteps, m_superReportIncrement);
    }
 
 private:
-   unsigned int m_numSuperSteps;
+   size_t m_numSuperSteps;
    WProgressReport::DisplayStepFunc m_superReportIncrement;
 };
 
