@@ -420,4 +420,32 @@ BOOST_AUTO_TEST_CASE (has_readers)
    BOOST_CHECK (!value.HasReaders ());
 }
 
+BOOST_AUTO_TEST_CASE (assigns_properly_void)
+{
+   //we had a problem where copying a deferred value with operator= and then having the copied value
+   //go out of scope was causing the value that was copied into to be marked done with a "broken
+   //promise" error. This was caused by a bug in operator=.
+   auto val1 = WDeferredValue<void> ();
+   val1.Done ();
+   {
+      auto val2 = WDeferredValue<void> ();
+      val1 = val2;
+   }
+   BOOST_CHECK (!val1.IsDone ());
+}
+
+BOOST_AUTO_TEST_CASE (assigns_properly_int)
+{
+   //we had a problem where copying a deferred value with operator= and then having the copied value
+   //go out of scope was causing the value that was copied into to be marked done with a "broken
+   //promise" error. This was caused by a bug in operator=.
+   auto val1 = WDeferredValue<int> ();
+   val1.Done (0);
+   {
+      auto val2 = WDeferredValue<int> ();
+      val1 = val2;
+   }
+   BOOST_CHECK (!val1.IsDone ());
+}
+
 BOOST_AUTO_TEST_SUITE_END (/*DeferredResult*/)

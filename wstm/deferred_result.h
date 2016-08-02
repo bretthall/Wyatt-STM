@@ -276,21 +276,6 @@ namespace WSTM
       WDeferredValue ()
       {}
       
-      /**
-       * Copies the given WDeferredValue object. When a deferred value is copied the objects are
-       * associated such that setting one done sets the other done.
-       *
-       * @param value The value to copy.
-       *
-       * @return This object.
-       */
-      WDeferredValue& operator= (const WDeferredValue& value)
-      {
-         //gcc requires "this"
-         this->m_core_p = value.m_core_p;
-         return *this;
-      }
-
       //@{
       /**
        * Sets the value to the "done" state with the given result.
@@ -333,22 +318,6 @@ namespace WSTM
        */
       WDeferredValue ()
       {}
-      
-      /**
-       * Copies the given WDeferredValue object. When a deferred valuew is copied the objects are
-       * associated such that setting one done sets the other done. Note that resetting a
-       * WDeferredValue object resets only that object, not any objects that are associated via
-       * copying.
-       *
-       * @param value The value to copy.
-       *
-       * @return This object.
-       */
-      WDeferredValue& operator= (const WDeferredValue& value)
-      {
-         m_core_p = value.m_core_p;
-         return *this;
-      }
       
       //@{
       /**
