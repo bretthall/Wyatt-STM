@@ -1545,6 +1545,13 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
          try
          {
             op.Run (at);
+
+            //have to commit in this try block in case a "before action" does something that throws
+            //an exception
+            if(at.Commit())
+            {
+               break;
+            }
          }
          catch(Internal::WFailedValidationException&)
          {
@@ -1576,11 +1583,6 @@ THREAD_LOCAL_WITH_INIT_VALUE (bool, s_committing, false);
             at.RunOnFails ();
             at.Restart();
             throw;
-         }
-
-         if(at.Commit())
-         {
-            break;
          }
 
          at.RunOnFails ();

@@ -2505,6 +2505,31 @@ BOOST_AUTO_TEST_CASE(BeforeCommitTests_test_parent_reg)
    BOOST_CHECK_EQUAL (bcAt_p, at_p);
 }
 
+BOOST_AUTO_TEST_CASE(BeforeCommitTests_exception_thrown)
+{
+   WSTM::WAtomic* bcAt_p = nullptr;
+   struct WExc {};
+   auto beforeCommit =
+      [&](WSTM::WAtomic& at)
+      {
+         bcAt_p = &at;
+         throw WExc ();
+      };
+   WSTM::WAtomic* at_p = nullptr;
+   auto func =
+      [&](WSTM::WAtomic& at)
+      {
+         at_p = &at;
+         at.BeforeCommit (beforeCommit);
+         BOOST_CHECK (!bcAt_p);
+      };
+   BOOST_CHECK_THROW(WSTM::Atomically (func), WExc);
+   //if we got here then we're OK, before a fix we would crash if a before action threw an exception
+   BOOST_CHECK (at_p);
+   BOOST_CHECK (bcAt_p);
+   BOOST_CHECK_EQUAL (bcAt_p, at_p);
+}
+
 BOOST_AUTO_TEST_SUITE_END(/*BeforeCommitTests*/)
 
 BOOST_AUTO_TEST_SUITE(LocalValueTests)
