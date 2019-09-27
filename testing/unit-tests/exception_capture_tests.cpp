@@ -43,8 +43,6 @@ namespace
 
 		const std::string m_msg;
 
-   private:
-      WTestExc& operator= (const WTestExc&) { return *this; }
 	};
 }
 
