@@ -187,6 +187,19 @@ namespace WSTM
          m_core_p (value.m_core_p),
          m_watch_p (value.m_watch_p)
       {}
+
+      /**
+       * Copy Assignment Operator
+       */
+      WDeferredValueBase& operator= (const WDeferredValueBase& value)
+      {
+         if (this != &value) {
+            m_core_p = value.m_core_p;
+            m_watch_p = value.m_watch_p;
+         }
+
+         return *this;
+      }
          
       //@{
       /**

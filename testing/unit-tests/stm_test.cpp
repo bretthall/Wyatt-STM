@@ -124,7 +124,16 @@ namespace
          m_val (t.m_val),
          m_index (varDtorIndex++)
       {}
-      
+
+      WVarDtorTester& operator= (const WVarDtorTester& t)
+      {
+         if (this != &t) {
+            m_val = t.m_val;
+            m_index = t.m_index;
+         }
+         return *this;
+      }
+
       ~WVarDtorTester ();
 
       int m_val;

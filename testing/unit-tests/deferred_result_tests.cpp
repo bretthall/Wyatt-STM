@@ -39,9 +39,6 @@ namespace
 	{
 		WTestException (int code): m_code (code) {}
 		const int m_code;
-
-   private:
-      WTestException& operator= (const WTestException&) { return *this; }
 	};	
 
    auto CountCallback (int& count)
